@@ -1,0 +1,46 @@
+@startuml
+title sdbp-review 系统上下文（UML-CTX-001）
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+actor "需求方" as Requester
+actor "开发者" as Developer
+
+rectangle "sdbp-review" as Review {
+  usecase "接入现存仓库\nUC-REPOSITORY-IMPORT" as Import
+  usecase "浏览统一交互图\nUC-MODEL-EXPLORE" as Explore
+  usecase "通过对话设计需求\nUC-REQUIREMENT-DESIGN" as Design
+  usecase "审查并批准统一图 Diff\nUC-MODEL-APPROVE" as Approve
+  usecase "按批准模型实现\nUC-IMPLEMENT" as Implement
+  usecase "按场景验证\nUC-VERIFY" as Verify
+  usecase "创建带模型 Diff 的 MR\nUC-MR-CREATE" as CreateMr
+}
+
+rectangle "目标 Git 仓库" as Repository
+rectangle "隔离 Worktree" as Worktree
+rectangle "完整测试环境" as TestEnvironment
+rectangle "GitLab" as GitLab
+rectangle "本机 Codex CLI" as Codex
+
+Requester --> Import
+Requester --> Explore
+Requester --> Design
+Requester --> Approve
+Developer --> Explore
+
+Import --> Repository
+Explore --> Repository
+Design --> Codex
+Implement --> Codex
+Implement --> Worktree
+Verify --> Worktree
+Verify --> TestEnvironment
+CreateMr --> GitLab
+
+note bottom of Review
+唯一主界面：自然语言对话 + 一张分层交互图
+需求层与技术设计层未同时批准时禁止进入实现
+第一版直接运行在宿主机并调用已登录的 Codex CLI
+end note
+@enduml

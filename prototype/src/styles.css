@@ -1,0 +1,56 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  color: #171a20;
+  background: #fff;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+.review-shell { height: 100dvh; overflow: hidden; background: #fff; }
+.main-column { min-width: 0; background: #fff; }
+.side-panel { border-inline: 1px solid #e5e7eb; }
+.panel { height: 100%; min-height: 0; padding: 20px; background: #fff; }
+.panel-heading { padding-bottom: 14px; border-bottom: 1px solid #eee; }
+.panel h4, .workspace-header h3 { margin: 0; }
+.conversation-panel { padding-bottom: 14px; }
+.message-list { flex: 1; min-height: 0; overflow: auto; }
+.message-list .ant-list-item { align-items: flex-start; padding-block: 18px; }
+.message-list .ant-list-item-meta-description .ant-typography { margin: 6px 0 0; white-space: pre-wrap; }
+.message-time, .hint { font-size: 12px; }
+.user-avatar { background: #2467d8; }
+.ai-avatar { background: #7950a4; }
+.composer { display: grid; gap: 8px; padding-top: 12px; }
+.thinking-space { height: 28px; }
+.workspace-header {
+  height: auto;
+  min-height: 144px;
+  padding: 22px 28px;
+  line-height: normal;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+}
+.graph-controls { margin-top: 20px; }
+.graph-content { min-height: 0; padding: 16px; overflow: auto; background: #fafafa; }
+.graph-svg { width: max-content; min-width: 100%; min-height: 100%; padding: 16px; background: #fff; border: 1px solid #eee; border-radius: 8px; }
+.graph-svg svg { display: block; width: 2000px; height: auto; }
+.graph-svg g.node { cursor: pointer; transition: opacity 0.2s; }
+.graph-svg g.node:focus { outline: none; }
+.graph-svg g.node:focus polygon, .graph-svg g.node:focus path { stroke-width: 3px; }
+.graph-svg.only-changes g.node:not(.changed) { opacity: 0.42; }
+.graph-loading { min-height: 440px; }
+.inspector-panel { overflow: auto; }
+.inspector-panel ul { margin: 0; padding-left: 20px; }
+.approval-bar { padding: 16px 22px; background: #fff; border-top: 1px solid #e5e7eb; }
+
+@media (max-width: 1199px) {
+  .workspace-header { min-height: 132px; padding: 18px; }
+  .graph-content { padding: 10px; }
+  .approval-bar { padding: 12px 16px; }
+  .ant-drawer-body .panel { padding: 0; }
+}
+
+@media (max-width: 600px) {
+  .workspace-header { min-height: 172px; }
+  .graph-svg svg { width: 1700px; }
+  .approval-bar .ant-btn-lg { width: 100%; }
+}

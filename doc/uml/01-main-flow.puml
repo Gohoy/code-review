@@ -1,0 +1,58 @@
+@startuml
+title sdbp-review 内部端到端主流程（UML-ACT-001）
+skinparam shadowing false
+
+note
+本图只供开发与验证下钻使用，禁止直接作为主页用户图。
+end note
+
+start
+partition "建立 AS_IS 基线" {
+  :需求方通过对话接入仓库;
+  :固定仓库 commit;
+  :只读扫描入口、方法、表、外部调用和测试;
+  :AI 从技术图聚合候选用户主线;
+  :展示自然语言行为图和来源证据;
+  while (基线仍有错误或未知？) is (是)
+    :需求方通过对话修正;
+    :重新生成候选 UML Diff;
+  endwhile (否)
+  :需求方批准 AS_IS 基线 revision;
+}
+
+partition "设计 TO_BE 需求" {
+  :需求方描述新需求;
+  :定位受影响主线、状态、不变量和技术节点;
+  :枚举正常、异常、权限、重试、并发和边界场景;
+  while (存在 UNRESOLVED？) is (是)
+    :通过对话询问业务问题;
+    :需求方回答;
+    :更新 UML Diff;
+  endwhile (否)
+  :需求方在同一画布审查需求层和技术设计层 Diff;
+  if (批准？) then (是)
+    :冻结需求与技术设计 revision 和内容哈希;
+  else (否)
+    :返回需求对话;
+    stop
+  endif
+}
+
+partition "实现与验证" {
+  :在独立 worktree 中按 revision 实现;
+  :从变化节点计算相关场景和测试范围;
+  :独立执行新场景、相关回归和完整测试;
+  :重新提取候选 AS_IS 并采集 OBSERVED 证据;
+  if (TO_BE、候选 AS_IS、OBSERVED 一致？) then (是)
+    :创建分支、提交和 GitLab MR;
+    :展示 UML、代码和验证三类 Diff;
+  else (否)
+    if (模型存在缺失或冲突？) then (是)
+      :返回需求设计并要求重新批准;
+    else (否)
+      :返回实现阶段修复;
+    endif
+  endif
+}
+stop
+@enduml

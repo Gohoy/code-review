@@ -1,0 +1,63 @@
+@startuml
+title 当前代码 AS_IS 内部建模流程（UML-ACT-ASIS-001）
+skinparam shadowing false
+
+note
+本图只供“AI 分析当前功能”节点下钻使用，禁止直接作为主页用户图。
+end note
+
+start
+:用户通过自然对话提供本地工作区路径;
+if (路径允许读取且包含 Git 仓库？) then (是)
+  :展示发现的仓库并让用户确认扫描范围;
+  :分别记录仓库身份、commit 和脏工作区状态;
+else (否)
+  :说明拒绝原因，不创建模型;
+  stop
+endif
+
+if (存在未提交修改？) then (是)
+  :说明第一版只建模已提交 commit;
+endif
+
+partition "确定性技术建模" {
+  :识别语言、项目清单和框架;
+  :提取入口、模块、符号和调用;
+  :提取数据实体、读写和外部调用;
+  :提取测试及其关联;
+  :记录未支持文件、解析失败和断裂引用;
+  :校验稳定 ID、关系端点和源码证据;
+  if (技术图可以完整发布？) then (是)
+    :冻结候选技术图和内容哈希;
+  else (否)
+    :保留上一成功 revision;
+    :展示本次扫描失败;
+    stop
+  endif
+}
+
+partition "候选用户行为建模" {
+  :AI 从入口沿调用、状态和副作用聚合用户主线;
+  :将每个行为节点关联到技术证据;
+  if (结论没有充分证据？) then (是)
+    :标记 INFERRED 或 UNRESOLVED;
+  endif
+  :把需求、设计、实现和测试节点合并为候选统一图 revision;
+}
+
+partition "展示与确认" {
+  :默认展示自然语言用户主线;
+  :点击节点在同一画布逐层展开设计、代码和测试证据;
+  :同时展示扫描缺口和模型 commit;
+  while (用户发现行为理解错误？) is (是)
+    :用户通过对话纠正;
+    :生成候选 UML 语义 Diff;
+  endwhile (否)
+  if (不存在 UNRESOLVED 且用户批准？) then (是)
+    :冻结 AS_IS 基线 revision;
+  else (否)
+    :保持候选状态;
+  endif
+}
+stop
+@enduml

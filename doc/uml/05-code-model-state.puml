@@ -1,0 +1,32 @@
+@startuml
+title 当前代码模型状态机（UML-STATE-ASIS-001）
+skinparam shadowing false
+
+[*] --> Empty
+Empty --> Scanning : 接入有效仓库
+Scanning --> ScanFailed : 无法生成可发布技术图
+ScanFailed --> Scanning : 重试
+Scanning --> TechnicalGraphReady : 技术图与缺口已冻结
+TechnicalGraphReady --> Synthesizing : 开始聚合用户行为
+Synthesizing --> CandidateReady : 候选行为图生成完成
+Synthesizing --> SynthesisFailed : AI 运行失败或输出无效
+SynthesisFailed --> Synthesizing : 重试
+CandidateReady --> CandidateReady : 对话修正并产生语义 Diff
+CandidateReady --> Approved : 无 UNRESOLVED 且用户批准
+CandidateReady --> Stale : 仓库 HEAD 改变
+Approved --> Stale : 仓库 HEAD 改变
+Stale --> Scanning : 用户重新扫描新 commit
+Stale --> Stale : 继续只读查看旧 revision
+
+state TechnicalGraphReady
+note right of TechnicalGraphReady
+只有完整校验成功的技术图可以发布。
+扫描缺口属于图的一部分，不等于扫描失败。
+end note
+
+state Approved
+note right of Approved
+批准的是指定 commit 的 AS_IS 用户行为解释，
+不是对代码质量或需求正确性的认可。
+end note
+@enduml

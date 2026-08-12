@@ -1,0 +1,113 @@
+@startuml
+title sdbp-review 统一图领域模型（UML-CLASS-001）
+skinparam shadowing false
+hide empty methods
+
+class Workspace {
+  +id: UUID
+  +name: String
+}
+
+class RepositorySnapshot {
+  +id: UUID
+  +path: Path
+  +commitSha: String
+  +capturedAt: Instant
+}
+
+class GraphRevision {
+  +id: StableId
+  +baseRevisionId: StableId?
+  +contentHash: SHA256
+  +status: Candidate | Approved | Superseded
+  +approvable: Boolean
+}
+
+enum GraphLayer {
+  requirement
+  design
+  implementation
+  verification
+}
+
+class GraphNode {
+  +id: StableId
+  +layer: GraphLayer
+  +kind: NodeKind
+  +title: String
+  +summary: String
+  +source: SourceKind
+  +details: JSON
+}
+
+class GraphEdge {
+  +id: StableId
+  +sourceId: StableId
+  +targetId: StableId
+  +kind: RelationKind
+  +label: String?
+  +source: SourceKind
+}
+
+enum SourceKind {
+  DECLARED
+  DERIVED
+  OBSERVED
+  INFERRED
+  UNRESOLVED
+}
+
+class GraphPatch {
+  +baseRevisionId: StableId
+  +addNodes: GraphNode[]
+  +updateNodes: GraphNode[]
+  +removeNodeIds: StableId[]
+  +addEdges: GraphEdge[]
+  +updateEdges: GraphEdge[]
+  +removeEdgeIds: StableId[]
+}
+
+class ConversationMessage {
+  +id: UUID
+  +role: User | Assistant
+  +content: String
+  +createdAt: Instant
+}
+
+class ImplementationRun {
+  +id: UUID
+  +status: Waiting | Running | Completed | NeedsInput | Failed
+  +worktreePath: Path?
+  +resultSummary: String?
+}
+
+class GraphProjection {
+  +revisionId: StableId
+  +layers: GraphLayer[]
+  +focusId: StableId?
+  +svg: String
+}
+
+Workspace "1" *-- "1..*" RepositorySnapshot
+Workspace "1" *-- "1..*" GraphRevision
+Workspace "1" *-- "0..*" ConversationMessage
+GraphRevision "1" *-- "1..*" GraphNode
+GraphRevision "1" *-- "0..*" GraphEdge
+GraphEdge "*" --> "1" GraphNode : sourceId
+GraphEdge "*" --> "1" GraphNode : targetId
+GraphPatch "*" --> "1" GraphRevision : 基于
+GraphPatch ..> GraphNode
+GraphPatch ..> GraphEdge
+GraphProjection "*" --> "1" GraphRevision
+ImplementationRun "*" --> "1" GraphRevision : 只读批准图
+
+note right of GraphRevision
+完整图快照不可变。
+批准时同时冻结需求层和技术设计层。
+end note
+
+note right of GraphProjection
+缩放、坐标、折叠和焦点只是显示状态，
+不进入内容哈希，也不产生语义 Diff。
+end note
+@enduml

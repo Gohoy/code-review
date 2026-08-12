@@ -1,0 +1,61 @@
+@startuml
+title 第一里程碑关键时序（UML-SEQ-M1-001）
+skinparam shadowing false
+
+actor "需求方" as User
+participant "浏览器" as Browser
+participant "sdbp-review" as App
+database "SQLite" as Db
+participant "本机 Codex CLI" as Codex
+participant "git" as Git
+participant "隔离 Worktree" as Worktree
+
+User -> Browser : 输入自然语言需求
+Browser -> App : POST /api/message
+App -> Db : 保存用户消息
+App -> Codex : exec + read-only + 固定 Schema\n输入完整对话和当前候选图
+Codex --> App : JSONL 事件与结构化最终结果
+
+alt Codex 失败或结果无效
+  App -> Db : 保存可见失败摘要\n不修改有效候选
+  App --> Browser : 返回失败状态
+else 存在未解决问题
+  App -> Db : 保存 AI 回复与不可批准候选图
+  App --> Browser : 同一画布展示问题及阻断关系
+else 信息完整
+  App -> App : 应用图差异，校验层级、节点、关系和场景\n规范化完整图并计算 SHA-256
+  App -> Db : 保存新的完整候选 revision
+  App --> Browser : 返回新 revision、Diff 和批准状态
+  Browser -> App : GET /api/graph.svg\n携带 revision、层级和焦点
+  App --> Browser : 返回带稳定节点 ID 的 SVG 投影
+end
+
+loop 用户要求修改
+  User -> Browser : 补充或修改需求
+  Browser -> App : POST /api/message
+  App -> Codex : 只读分析完整上下文
+  Codex --> App : 新的结构化图差异
+  App -> Db : 保留旧 revision，新增候选
+  App --> Browser : 在同一画布展示多层语义差异
+end
+
+User -> Browser : 点击“批准并开始开发”
+Browser -> App : POST /api/revision/{id}/approve-and-start\n携带页面所见内容哈希
+App -> Db : 事务：重读候选、比对哈希、检查问题、\n冻结 revision、插入等待运行
+
+alt 候选过期、存在问题或已经批准
+  Db --> App : 拒绝事务
+  App --> Browser : 返回当前状态，不写代码
+else 批准成功
+  Db --> App : 批准 revision 与等待运行
+  App --> Browser : 立即返回运行 ID
+  App -> Git : worktree add（唯一目录和分支）
+  Git -> Worktree : 从固定基线 commit 创建
+  App -> Codex : exec + workspace-write + 固定 Schema\n输入批准图 JSON 原文和哈希
+  Codex -> Worktree : 实现批准需求
+  Codex --> App : 完成 / 需要补充信息 / 失败
+  App -> Db : 保存最终状态、worktree 和结果摘要
+  Browser -> App : GET /api/state（短轮询）
+  App --> Browser : 返回最新开发状态
+end
+@enduml

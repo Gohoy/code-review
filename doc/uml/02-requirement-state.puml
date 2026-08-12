@@ -1,0 +1,37 @@
+@startuml
+title 需求与模型 revision 状态机（UML-STATE-001）
+skinparam shadowing false
+
+[*] --> Draft : 创建需求
+Draft --> Modeling : 开始分析
+Modeling --> WaitingForUser : 发现 UNRESOLVED
+WaitingForUser --> Modeling : 需求方回答
+Modeling --> WaitingForDependency : 缺少必要外部依赖或人工决策
+WaitingForDependency --> Modeling : 用户提供依赖或作出决策
+Modeling --> ModelReview : 需求与技术设计图 Diff 完整
+ModelReview --> Modeling : 需求方要求修改
+ModelReview --> Approved : 需求方批准
+Approved --> Implementing : 创建隔离 worktree
+Implementing --> Verifying : 实现声称完成
+Implementing --> Modeling : 发现模型冲突
+Verifying --> Implementing : 实现或测试失败
+Verifying --> Modeling : 发现需求缺失
+Verifying --> MergeRequestOpen : 全部门禁通过
+MergeRequestOpen --> Verifying : MR 新提交使证据失效
+MergeRequestOpen --> Closed : MR 合并或关闭
+Closed --> [*]
+
+state Approved
+note right of Approved
+revision 与内容哈希不可变
+需求层与技术设计层同时冻结
+只有该状态允许启动实现
+end note
+
+state WaitingForDependency
+note right of WaitingForDependency
+不得自行选择凭证来源、扩大权限或绕过依赖。
+用户未提供前禁止批准和开发。
+Codex CLI 不存在或未登录也停留在此状态。
+end note
+@enduml

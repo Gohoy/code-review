@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "baseRevisionId",
+    "reply",
+    "upsertNodes",
+    "deleteNodeIds",
+    "upsertEdges",
+    "deleteEdgeIds"
+  ],
+  "properties": {
+    "baseRevisionId": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"
+    },
+    "reply": {"type": "string", "minLength": 1},
+    "upsertNodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/node"}
+    },
+    "deleteNodeIds": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/stableId"}
+    },
+    "upsertEdges": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/edge"}
+    },
+    "deleteEdgeIds": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/stableId"}
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"
+    },
+    "source": {
+      "enum": ["DECLARED", "DERIVED", "OBSERVED", "INFERRED", "UNRESOLVED"]
+    },
+    "layer": {
+      "enum": ["requirement", "design", "implementation", "verification"]
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "layer", "kind", "title", "summary", "source", "details"],
+      "properties": {
+        "id": {"$ref": "#/$defs/stableId"},
+        "layer": {"$ref": "#/$defs/layer"},
+        "kind": {
+          "enum": [
+            "Actor", "Goal", "Flow", "Scenario", "Action", "Decision", "State",
+            "Rule", "Outcome", "Question", "Screen", "Component", "Interface",
+            "DataStore", "DataEntity", "ExternalSystem", "RuntimeBoundary",
+            "Repository", "Module", "Symbol", "EntryPoint", "Configuration", "Test",
+            "TestRun", "Evidence"
+          ]
+        },
+        "title": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+        "source": {"$ref": "#/$defs/source"},
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "value"],
+            "properties": {
+              "key": {"type": "string", "minLength": 1},
+              "value": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sourceId", "targetId", "kind", "label", "source"],
+      "properties": {
+        "id": {"$ref": "#/$defs/stableId"},
+        "sourceId": {"$ref": "#/$defs/stableId"},
+        "targetId": {"$ref": "#/$defs/stableId"},
+        "kind": {
+          "enum": [
+            "contains", "initiates", "next", "branch", "transitions", "guarded_by",
+            "produces", "affects", "blocks", "realized_by", "implemented_by",
+            "verified_by", "exposes", "calls", "reads", "writes", "invokes",
+            "creates", "renders", "configured_by", "evidenced_by", "constrains"
+          ]
+        },
+        "label": {"type": "string"},
+        "source": {"$ref": "#/$defs/source"}
+      }
+    }
+  }
+}

@@ -1,0 +1,278 @@
+{
+  "modelId": "MODEL-REVIEW-TOOL",
+  "title": "通过对话生成需求图并在批准后开发",
+  "revision": {
+    "id": "REV-REVIEW-TOOL-001",
+    "status": "SUPERSEDED",
+    "source": "DECLARED",
+    "contentHash": null,
+    "approvable": false
+  },
+  "view": {
+    "id": "VIEW-REQUIREMENT-TO-DEVELOPMENT",
+    "nodeIds": [
+      "ACTION-SUBMIT-REQUIREMENT",
+      "ACTION-ANALYZE-REQUIREMENT",
+      "DECISION-INFORMATION-COMPLETE",
+      "ACTION-ASK-QUESTION",
+      "ACTION-GENERATE-REQUIREMENT-GRAPH",
+      "DECISION-APPROVE-REQUIREMENT",
+      "ACTION-DEVELOP-IN-WORKTREE",
+      "OUTCOME-DEVELOPMENT-RESULT"
+    ]
+  },
+  "nodes": [
+    {
+      "id": "ACTION-SUBMIT-REQUIREMENT",
+      "kind": "Action",
+      "title": "用户描述新需求",
+      "summary": "需求方在对话框中用自然语言说明目标、操作和期望结果。",
+      "source": "DECLARED"
+    },
+    {
+      "id": "ACTION-ANALYZE-REQUIREMENT",
+      "kind": "Action",
+      "title": "AI 分析需求和必要依赖",
+      "summary": "AI 只读分析对话、当前模型和仓库，识别场景、影响、缺失信息与开发依赖。",
+      "source": "DECLARED",
+      "technicalDetail": {
+        "command": "codex exec --ephemeral --ignore-user-config --sandbox read-only --json --output-schema <固定 Schema> -",
+        "input": "完整对话、当前候选模型、仓库位置和固定建模指令",
+        "output": "符合固定 Schema 的回复、需求图、场景和未解决问题"
+      }
+    },
+    {
+      "id": "DECISION-INFORMATION-COMPLETE",
+      "kind": "Decision",
+      "title": "需求信息是否完整？",
+      "summary": "业务场景、可观察结果、必要依赖和人工决策全部明确时才可进入审查。",
+      "source": "DECLARED"
+    },
+    {
+      "id": "ACTION-ASK-QUESTION",
+      "kind": "Action",
+      "title": "AI 继续询问",
+      "summary": "AI 一次提出当前阻断建模或开发的必要问题，不猜测凭证、权限或业务结论。",
+      "source": "DECLARED"
+    },
+    {
+      "id": "ACTION-GENERATE-REQUIREMENT-GRAPH",
+      "kind": "Action",
+      "title": "AI 生成需求图",
+      "summary": "系统从结构化候选模型生成简洁行为图，详细场景和技术影响通过节点下钻展示。",
+      "source": "DECLARED"
+    },
+    {
+      "id": "DECISION-APPROVE-REQUIREMENT",
+      "kind": "Decision",
+      "title": "用户是否批准？",
+      "summary": "只有用户点击“批准并开始开发”，系统才冻结当前候选 revision。",
+      "source": "DECLARED"
+    },
+    {
+      "id": "ACTION-DEVELOP-IN-WORKTREE",
+      "kind": "Action",
+      "title": "AI 在隔离 Worktree 开发",
+      "summary": "系统创建隔离 Git worktree，并把用户刚批准的完整 revision 原样交给本机 Codex CLI。",
+      "source": "DECLARED",
+      "technicalDetail": {
+        "command": "codex exec --ephemeral --ignore-user-config --sandbox workspace-write --json --output-schema <固定 Schema> -",
+        "writeBoundary": "仅允许写入本次运行的隔离 Git worktree",
+        "immutableInput": "批准 revision 的规范化 JSON 与 SHA-256 内容哈希"
+      }
+    },
+    {
+      "id": "OUTCOME-DEVELOPMENT-RESULT",
+      "kind": "Outcome",
+      "title": "显示开发状态和结果",
+      "summary": "用户可以看到等待、运行、完成、需要补充信息或失败状态，以及 worktree 和结果摘要。",
+      "source": "DECLARED"
+    },
+    {
+      "id": "RULE-NO-WRITE-BEFORE-APPROVAL",
+      "kind": "Rule",
+      "title": "未批准不得写代码",
+      "summary": "建模阶段的 Codex 只能只读运行；批准操作成功前不得创建 worktree 或启动实现。",
+      "source": "DECLARED"
+    },
+    {
+      "id": "RULE-APPROVED-REVISION-IMMUTABLE",
+      "kind": "Rule",
+      "title": "批准 revision 不可变",
+      "summary": "批准后的模型正文和内容哈希不可修改；新需求只能产生新的候选 revision。",
+      "source": "DECLARED"
+    }
+  ],
+  "edges": [
+    {
+      "id": "EDGE-SUBMIT-ANALYZE",
+      "sourceId": "ACTION-SUBMIT-REQUIREMENT",
+      "targetId": "ACTION-ANALYZE-REQUIREMENT",
+      "kind": "next"
+    },
+    {
+      "id": "EDGE-ANALYZE-COMPLETE",
+      "sourceId": "ACTION-ANALYZE-REQUIREMENT",
+      "targetId": "DECISION-INFORMATION-COMPLETE",
+      "kind": "next"
+    },
+    {
+      "id": "EDGE-INCOMPLETE-ASK",
+      "sourceId": "DECISION-INFORMATION-COMPLETE",
+      "targetId": "ACTION-ASK-QUESTION",
+      "kind": "branch",
+      "label": "否"
+    },
+    {
+      "id": "EDGE-ASK-SUBMIT",
+      "sourceId": "ACTION-ASK-QUESTION",
+      "targetId": "ACTION-SUBMIT-REQUIREMENT",
+      "kind": "next"
+    },
+    {
+      "id": "EDGE-COMPLETE-GRAPH",
+      "sourceId": "DECISION-INFORMATION-COMPLETE",
+      "targetId": "ACTION-GENERATE-REQUIREMENT-GRAPH",
+      "kind": "branch",
+      "label": "是"
+    },
+    {
+      "id": "EDGE-GRAPH-APPROVE",
+      "sourceId": "ACTION-GENERATE-REQUIREMENT-GRAPH",
+      "targetId": "DECISION-APPROVE-REQUIREMENT",
+      "kind": "next"
+    },
+    {
+      "id": "EDGE-REVISE-SUBMIT",
+      "sourceId": "DECISION-APPROVE-REQUIREMENT",
+      "targetId": "ACTION-SUBMIT-REQUIREMENT",
+      "kind": "branch",
+      "label": "需要修改"
+    },
+    {
+      "id": "EDGE-APPROVE-DEVELOP",
+      "sourceId": "DECISION-APPROVE-REQUIREMENT",
+      "targetId": "ACTION-DEVELOP-IN-WORKTREE",
+      "kind": "branch",
+      "label": "批准并开始开发"
+    },
+    {
+      "id": "EDGE-DEVELOP-RESULT",
+      "sourceId": "ACTION-DEVELOP-IN-WORKTREE",
+      "targetId": "OUTCOME-DEVELOPMENT-RESULT",
+      "kind": "produces"
+    },
+    {
+      "id": "EDGE-APPROVAL-GUARD",
+      "sourceId": "ACTION-DEVELOP-IN-WORKTREE",
+      "targetId": "RULE-NO-WRITE-BEFORE-APPROVAL",
+      "kind": "guarded_by"
+    },
+    {
+      "id": "EDGE-REVISION-GUARD",
+      "sourceId": "DECISION-APPROVE-REQUIREMENT",
+      "targetId": "RULE-APPROVED-REVISION-IMMUTABLE",
+      "kind": "guarded_by"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "SCN-REQ-DIALOG-001",
+      "title": "提交自然语言需求",
+      "nodeIds": ["ACTION-SUBMIT-REQUIREMENT", "ACTION-ANALYZE-REQUIREMENT"],
+      "given": ["本机 Codex CLI 已安装并登录", "当前没有正在执行的建模调用"],
+      "when": ["用户提交非空需求消息"],
+      "then": ["系统保存用户消息", "Codex 以只读沙箱分析完整上下文", "系统保存并展示 AI 回复"]
+    },
+    {
+      "id": "SCN-REQ-DEPENDENCY-001",
+      "title": "缺少必要信息或依赖",
+      "nodeIds": ["DECISION-INFORMATION-COMPLETE", "ACTION-ASK-QUESTION"],
+      "given": ["AI 识别出阻断需求建模或开发的未知信息"],
+      "when": ["结构化结果包含未解决问题"],
+      "then": ["系统展示必要问题", "候选 revision 标记为不可批准", "系统不创建 worktree、不写目标代码"]
+    },
+    {
+      "id": "SCN-REQ-GRAPH-001",
+      "title": "生成可审查需求图",
+      "nodeIds": ["ACTION-GENERATE-REQUIREMENT-GRAPH"],
+      "given": ["结构化结果通过 Schema 与关系完整性校验", "Graphviz dot 可用", "不存在未解决问题"],
+      "when": ["系统创建新的候选 revision"],
+      "then": ["主页展示简洁用户行为图", "点击节点可以看到详细场景和技术影响", "批准按钮明确显示当前 revision"]
+    },
+    {
+      "id": "SCN-REQ-REVISE-001",
+      "title": "通过对话修改候选图",
+      "nodeIds": ["DECISION-APPROVE-REQUIREMENT", "ACTION-SUBMIT-REQUIREMENT"],
+      "given": ["页面已经展示一个候选 revision"],
+      "when": ["用户通过对话要求修改"],
+      "then": ["系统保留旧 revision", "系统生成并展示新候选 revision 与语义差异", "任何已批准 revision 均不被修改"]
+    },
+    {
+      "id": "SCN-REQ-APPROVE-001",
+      "title": "明确批准需求",
+      "nodeIds": ["DECISION-APPROVE-REQUIREMENT", "RULE-APPROVED-REVISION-IMMUTABLE"],
+      "given": ["候选 revision 不存在未解决问题", "浏览器提交的 revision ID 与内容哈希仍是当前候选值"],
+      "when": ["用户点击“批准并开始开发”"],
+      "then": ["系统在一个事务中冻结 revision 并创建开发运行", "批准正文和哈希以后不可修改", "普通聊天文本不会触发批准"]
+    },
+    {
+      "id": "SCN-REQ-APPROVE-BLOCK-001",
+      "title": "阻止过期或不完整批准",
+      "nodeIds": ["DECISION-APPROVE-REQUIREMENT", "RULE-NO-WRITE-BEFORE-APPROVAL"],
+      "given": ["候选 revision 含未解决问题，或页面提交了过期的 ID 或哈希"],
+      "when": ["用户发起批准"],
+      "then": ["系统拒绝批准并返回当前状态", "系统不创建 worktree、不启动 Codex 实现调用"]
+    },
+    {
+      "id": "SCN-DEV-CODEX-001",
+      "title": "按批准 revision 开发",
+      "nodeIds": ["ACTION-DEVELOP-IN-WORKTREE", "OUTCOME-DEVELOPMENT-RESULT"],
+      "given": ["批准事务已经提交", "目标 Git 仓库和基线 commit 有效"],
+      "when": ["后台开发运行开始"],
+      "then": ["系统创建唯一隔离 worktree", "Codex 仅在该 worktree 以 workspace-write 沙箱运行", "Codex 输入包含批准 revision 原文和内容哈希", "页面轮询并显示最终状态、worktree 与结果摘要"]
+    },
+    {
+      "id": "SCN-DEV-FAIL-001",
+      "title": "Codex 或 Git 运行失败",
+      "nodeIds": ["ACTION-ANALYZE-REQUIREMENT", "ACTION-DEVELOP-IN-WORKTREE", "OUTCOME-DEVELOPMENT-RESULT"],
+      "given": ["Codex CLI 不存在、未登录、超时、退出非零、输出无效，或 Git 无法创建 worktree"],
+      "when": ["相应操作失败"],
+      "then": ["系统保留已批准 revision", "系统记录不含凭证的失败摘要并向用户展示", "系统不把失败运行标记为完成"]
+    },
+    {
+      "id": "SCN-DEV-QUESTION-001",
+      "title": "开发中发现新的必要决策",
+      "nodeIds": ["ACTION-DEVELOP-IN-WORKTREE", "ACTION-ASK-QUESTION"],
+      "given": ["Codex 在实现中发现批准模型无法决定的冲突或依赖"],
+      "when": ["Codex 返回需要补充信息"],
+      "then": ["运行进入“需要补充信息”状态并停止", "系统把问题带回对话", "用户回答后生成新的候选 revision 并重新批准"]
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-AI-001",
+      "source": "DECLARED",
+      "decision": "第一版直接调用当前用户已安装并登录的本机 Codex CLI。"
+    },
+    {
+      "id": "DEC-RUNTIME-001",
+      "source": "DERIVED",
+      "decision": "第一版应用运行在宿主机；Docker 不承载 Codex CLI 或登录凭证。"
+    },
+    {
+      "id": "DEC-SCOPE-001",
+      "source": "DECLARED",
+      "decision": "第一里程碑止于可观察的开发结果；自动测试、代码建模和 GitLab MR 后续实现。"
+    }
+  ],
+  "unresolvedQuestions": [
+    {
+      "id": "UNRESOLVED-Q-DEPENDENCY-DOT-001",
+      "question": "是否允许在宿主机执行 brew install graphviz，为大图排版提供固定 dot 命令？",
+      "reason": "当前宿主机没有 dot；应用必须与本机 Codex CLI 一起运行在宿主机，改由 Docker 渲染会增加额外进程、接口和安全边界。",
+      "recommendation": "允许安装宿主机 Graphviz。",
+      "source": "UNRESOLVED"
+    }
+  ]
+}

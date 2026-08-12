@@ -1,0 +1,57 @@
+@startuml
+title 第一里程碑组件图（UML-COMP-M1-001）
+left to right direction
+skinparam shadowing false
+skinparam componentStyle rectangle
+
+actor "需求方" as User
+
+node "用户浏览器" as Browser {
+  component "对话 + 行为图 + 节点详情" as UI
+}
+
+node "宿主机本地进程" as Host {
+  component "HTTP 层" as Http
+  component "需求协调" as Requirement
+  component "统一图校验与哈希" as Validator
+  component "Codex 运行器" as CodexRunner
+  component "Git Worktree 管理" as GitRunner
+  component "交互图投影" as Graph
+  database "SQLite" as Db
+}
+
+component "已登录的本机 Codex CLI" as Codex
+component "固定 git 命令" as Git
+component "固定 dot 命令" as Dot
+folder "目标 Git 仓库\n建模时只读" as Repository
+folder "本次隔离 Worktree\n实现时可写" as Worktree
+file "批准的统一图\n规范化 JSON + SHA-256" as ApprovedModel
+
+User --> UI
+UI --> Http : 三个 JSON API + 一个 SVG 投影接口
+Http --> Requirement
+Requirement --> Validator
+Requirement --> Db
+Requirement --> CodexRunner
+Requirement --> GitRunner : 仅批准事务提交后
+Requirement --> Graph
+CodexRunner --> Codex : 固定参数数组，无 shell
+Codex --> Repository : 建模：read-only
+Codex --> Worktree : 开发：workspace-write
+GitRunner --> Git : 固定 worktree add
+Git --> Repository
+Git --> Worktree
+Graph --> Dot : 固定 -Tsvg
+Validator --> ApprovedModel : 批准后不可变
+CodexRunner --> ApprovedModel : 原文与哈希作为开发输入
+
+note bottom of Host
+只监听本机；同一需求一次只运行一个 AI 调用。
+不保存或传递 Codex 登录凭证。
+end note
+
+note bottom of CodexRunner
+第一版直接适配 Codex CLI。
+不预建 OpenAI、Anthropic 或多 Provider 抽象。
+end note
+@enduml

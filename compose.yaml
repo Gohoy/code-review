@@ -1,0 +1,10 @@
+services:
+  review:
+    build: .
+    ports:
+      - "127.0.0.1:8418:8417"
+    volumes:
+      - review-data:/data
+
+volumes:
+  review-data:

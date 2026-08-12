@@ -1,0 +1,7 @@
+.git
+.venv
+data
+prototype/design-qa
+prototype/dist
+prototype/node_modules
+__pycache__

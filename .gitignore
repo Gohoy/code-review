@@ -1,0 +1,10 @@
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+data/
+prototype/dist/
+prototype/design-qa.md
+prototype/design-qa/
+prototype/node_modules/
