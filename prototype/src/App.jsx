@@ -11,7 +11,6 @@ import {
   Grid,
   Input,
   Layout,
-  List,
   Segmented,
   Space,
   Spin,
@@ -49,33 +48,30 @@ function Conversation({ state, draft, setDraft, sending, onSubmit, inputRef }) {
   return (
     <Flex vertical className="panel conversation-panel">
       <div className="panel-heading"><Title level={4}>需求对话</Title></div>
-      <List
-        className="message-list"
-        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="描述第一个需求" /> }}
-        dataSource={messages}
-        renderItem={(item) => {
+      <div className="message-list">
+        {messages.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="描述第一个需求" />
+        ) : messages.map((item) => {
           const user = item.role === "USER";
           return (
-            <List.Item>
-              <List.Item.Meta
-                avatar={<Avatar className={user ? "user-avatar" : "ai-avatar"}>{user ? "你" : "AI"}</Avatar>}
-                title={
-                  <Flex justify="space-between" gap={8}>
-                    <Text strong>{user ? "你" : "AI"}</Text>
-                    <Text type="secondary" className="message-time">
-                      {new Date(item.createdAt).toLocaleString("zh-CN", {
-                        month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
-                      })}
-                    </Text>
-                  </Flex>
-                }
-                description={<Paragraph>{item.content}</Paragraph>}
-              />
-            </List.Item>
+            <div className="message-item" key={item.id}>
+              <Avatar className={user ? "user-avatar" : "ai-avatar"}>{user ? "你" : "AI"}</Avatar>
+              <div className="message-body">
+                <Flex justify="space-between" gap={8}>
+                  <Text strong>{user ? "你" : "AI"}</Text>
+                  <Text type="secondary" className="message-time">
+                    {new Date(item.createdAt).toLocaleString("zh-CN", {
+                      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+                    })}
+                  </Text>
+                </Flex>
+                <Paragraph type="secondary">{item.content}</Paragraph>
+              </div>
+            </div>
           );
-        }}
-      />
-      {modeling && <Spin size="small" tip="AI 正在更新统一图…"><div className="thinking-space" /></Spin>}
+        })}
+      </div>
+      {modeling && <Spin size="small" description="AI 正在更新统一图…"><div className="thinking-space" /></Spin>}
       <div className="composer">
         <Input.TextArea
           ref={inputRef}
@@ -274,7 +270,7 @@ export function ReviewApp() {
     });
   }
 
-  if (!state) return <Spin fullscreen tip="正在读取统一图…" />;
+  if (!state) return <Spin fullscreen description="正在读取统一图…" />;
 
   const approvalErrors = state.approvalErrors || [];
   const canApprove = revision?.status === "CANDIDATE"
@@ -333,11 +329,11 @@ export function ReviewApp() {
               onKeyDown={activateNode}
               dangerouslySetInnerHTML={{ __html: svg }}
             />
-          ) : <Spin tip="正在生成行为图…"><div className="graph-loading" /></Spin>}
+          ) : <Spin description="正在生成行为图…"><div className="graph-loading" /></Spin>}
         </Content>
         <Footer className="approval-bar">
           <Flex justify="space-between" align="center" gap={16} wrap>
-            <Space direction="vertical" size={2}>
+            <Space orientation="vertical" size={2}>
               <Text>层级计数：需求 {state.layerCounts.requirement} · 技术设计 {state.layerCounts.design} · 代码实现 {state.layerCounts.implementation} · 测试证据 {state.layerCounts.verification}</Text>
               {state.implementationRun && <Text type="secondary">开发运行 {state.implementationRun.status}：{state.implementationRun.summary || "等待执行"}</Text>}
             </Space>
@@ -349,8 +345,8 @@ export function ReviewApp() {
         </Footer>
       </Layout>
       {desktop && <Sider width={300} theme="light" className="side-panel">{inspector}</Sider>}
-      <Drawer title="需求对话" placement="left" width="min(92vw, 420px)" open={conversationOpen} onClose={() => setConversationOpen(false)}>{conversation}</Drawer>
-      <Drawer title="节点详情" placement="right" width="min(92vw, 420px)" open={inspectorOpen} onClose={() => setInspectorOpen(false)}>{inspector}</Drawer>
+      <Drawer title="需求对话" placement="left" size="min(92vw, 420px)" open={conversationOpen} onClose={() => setConversationOpen(false)}>{conversation}</Drawer>
+      <Drawer title="节点详情" placement="right" size="min(92vw, 420px)" open={inspectorOpen} onClose={() => setInspectorOpen(false)}>{inspector}</Drawer>
     </Layout>
   );
 }

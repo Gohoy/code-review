@@ -14,8 +14,10 @@ body { margin: 0; min-width: 320px; }
 .panel h4, .workspace-header h3 { margin: 0; }
 .conversation-panel { padding-bottom: 14px; }
 .message-list { flex: 1; min-height: 0; overflow: auto; }
-.message-list .ant-list-item { align-items: flex-start; padding-block: 18px; }
-.message-list .ant-list-item-meta-description .ant-typography { margin: 6px 0 0; white-space: pre-wrap; }
+.message-list > .ant-empty { margin-top: 96px; }
+.message-item { display: flex; gap: 12px; align-items: flex-start; padding-block: 18px; border-bottom: 1px solid #f0f0f0; }
+.message-body { flex: 1; min-width: 0; }
+.message-body .ant-typography { margin: 6px 0 0; white-space: pre-wrap; }
 .message-time, .hint { font-size: 12px; }
 .user-avatar { background: #2467d8; }
 .ai-avatar { background: #7950a4; }
