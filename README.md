@@ -3,7 +3,7 @@
 SDBP 的统一图模型驱动需求、技术设计、开发、测试与代码 Review 工具。
 
 第一里程碑已经实现：用户通过自然语言让本机 Codex 生成需求与技术设计图差异，明确批准后，系统才会在隔离 Git worktree 中启动开发。唯一数据源是
-[统一图模型](model/review-tool.json)，当前批准版本为 `REV-REVIEW-TOOL-009`。
+[统一图模型](model/review-tool.json)。当前批准版本为 `REV-REVIEW-TOOL-009`；图与代码权威契约候选版本为 `REV-REVIEW-TOOL-010`。
 
 ## 本地运行
 
@@ -46,6 +46,7 @@ docker compose up --build
 
 - [需求基线](doc/requirement.md)
 - [统一交互图模型](doc/graph-model.md)
+- [图与代码权威契约](doc/graph-code-contract.md)
 - [用户可见流程与需求行为图定义](doc/requirement-graph.md)
 - [代码实现层定义](doc/implementation-graph.md)
 - [AI Prompt 设计规范](doc/ai-prompt-design.md)

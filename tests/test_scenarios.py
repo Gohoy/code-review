@@ -10,7 +10,15 @@ from typing import cast
 import pytest
 
 from app.config import ROOT
-from app.graph import JsonObject, changed_ids, load_object, to_dot
+from app.graph import (
+    GraphError,
+    JsonObject,
+    changed_ids,
+    graph_hash,
+    load_object,
+    to_dot,
+    validate_document,
+)
 from app.runner import Runner, RunnerError
 from app.service import ReviewService
 from app.store import REPOSITORY_ID, Store, StoreError
@@ -291,3 +299,137 @@ def test_仓库拥有统一图revision链(tmp_path: Path, scenario_id: str) -> N
         assert scenario_id.startswith("SCN-")
 
     run(scenario())
+
+
+@pytest.mark.parametrize("scenario_id", ["SCN-CODE-AUTHORITY-001"], ids=lambda value: value)
+def test_图代码契约拒绝无快照或锚点的实现事实(tmp_path: Path, scenario_id: str) -> None:
+    del tmp_path
+    document = copy.deepcopy(seed())
+    graph = cast(JsonObject, document["graph"])
+    nodes = cast(list[JsonObject], graph["nodes"])
+    edges = cast(list[JsonObject], graph["edges"])
+    snapshot_id = "SNAPSHOT-REPOSITORY-LOCAL-A1B2C3D4"
+    anchor: JsonObject = {
+        "snapshotId": snapshot_id,
+        "path": "app/service.py",
+        "range": {
+            "start": {"line": 10, "column": 1},
+            "end": {"line": 12, "column": 20},
+        },
+        "extractorId": "PYTHON-AST",
+        "fingerprint": "a" * 64,
+    }
+    graph["codeSnapshots"] = [
+        {
+            "id": snapshot_id,
+            "repositoryId": "REPOSITORY-LOCAL",
+            "commitSha": "1" * 40,
+            "treeHash": "2" * 40,
+            "scanHash": "3" * 64,
+            "roots": ["app"],
+            "extractors": [{"id": "PYTHON-AST", "version": "1.0.0"}],
+        }
+    ]
+    nodes.extend(
+        [
+            {
+                "id": "IMPL-REPOSITORY-LOCAL",
+                "layer": "implementation",
+                "kind": "Repository",
+                "title": "本地仓库",
+                "summary": "固定代码快照所属仓库。",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "details": {},
+            },
+            {
+                "id": "IMPL-SYMBOL-APPROVE",
+                "layer": "implementation",
+                "kind": "Symbol",
+                "title": "批准实现",
+                "summary": "处理批准操作。",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "anchors": [anchor],
+                "details": {"qualifiedName": "ReviewService.approve"},
+            },
+            {
+                "id": "IMPL-SYMBOL-STORE-APPROVE",
+                "layer": "implementation",
+                "kind": "Symbol",
+                "title": "保存批准结果",
+                "summary": "保存批准 revision。",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "anchors": [anchor],
+                "details": {"qualifiedName": "Store.approve"},
+            },
+        ]
+    )
+    edges.extend(
+        [
+            {
+                "id": "EDGE-IMPL-REPOSITORY-CONTAINS-APPROVE",
+                "sourceId": "IMPL-REPOSITORY-LOCAL",
+                "targetId": "IMPL-SYMBOL-APPROVE",
+                "kind": "contains",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+            },
+            {
+                "id": "EDGE-IMPL-APPROVE-CALLS-STORE",
+                "sourceId": "IMPL-SYMBOL-APPROVE",
+                "targetId": "IMPL-SYMBOL-STORE-APPROVE",
+                "kind": "calls",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "anchors": [anchor],
+            },
+            {
+                "id": "EDGE-DESIGN-VALIDATOR-IMPLEMENTED-BY-APPROVE",
+                "sourceId": "DESIGN-COMPONENT-GRAPH-VALIDATOR",
+                "targetId": "IMPL-SYMBOL-APPROVE",
+                "kind": "implemented_by",
+                "source": "INFERRED",
+            },
+        ]
+    )
+
+    def refresh_hash(value: JsonObject) -> None:
+        revision = cast(JsonObject, value["revision"])
+        revision["contentHash"] = graph_hash(cast(JsonObject, value["graph"]))
+
+    refresh_hash(document)
+    validate_document(document, schema())
+
+    without_node_anchor = copy.deepcopy(document)
+    bad_nodes = cast(list[JsonObject], cast(JsonObject, without_node_anchor["graph"])["nodes"])
+    next(node for node in bad_nodes if node["id"] == "IMPL-SYMBOL-APPROVE").pop("anchors")
+    refresh_hash(without_node_anchor)
+    with pytest.raises(GraphError, match="静态实现节点缺少源码锚点"):
+        validate_document(without_node_anchor, schema())
+
+    without_edge_anchor = copy.deepcopy(document)
+    bad_edges = cast(list[JsonObject], cast(JsonObject, without_edge_anchor["graph"])["edges"])
+    next(edge for edge in bad_edges if edge["id"] == "EDGE-IMPL-APPROVE-CALLS-STORE").pop("anchors")
+    refresh_hash(without_edge_anchor)
+    with pytest.raises(GraphError, match="静态实现关系缺少源码锚点"):
+        validate_document(without_edge_anchor, schema())
+
+    unknown_snapshot = copy.deepcopy(document)
+    unknown_nodes = cast(list[JsonObject], cast(JsonObject, unknown_snapshot["graph"])["nodes"])
+    unknown_nodes[-1]["snapshotId"] = "SNAPSHOT-UNKNOWN-CODE"
+    refresh_hash(unknown_snapshot)
+    with pytest.raises(GraphError, match="引用了不存在的代码快照"):
+        validate_document(unknown_snapshot, schema())
+
+    reversed_trace = copy.deepcopy(document)
+    trace_edges = cast(list[JsonObject], cast(JsonObject, reversed_trace["graph"])["edges"])
+    trace = next(
+        edge for edge in trace_edges if edge["id"] == "EDGE-DESIGN-VALIDATOR-IMPLEMENTED-BY-APPROVE"
+    )
+    trace["sourceId"], trace["targetId"] = trace["targetId"], trace["sourceId"]
+    refresh_hash(reversed_trace)
+    with pytest.raises(GraphError, match="跨层追踪方向无效"):
+        validate_document(reversed_trace, schema())
+    assert scenario_id.startswith("SCN-")

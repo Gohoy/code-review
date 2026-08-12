@@ -1,6 +1,5 @@
 {
   "graph": {
-    "codeSnapshots": [],
     "edges": [
       {
         "id": "EDGE-ACTOR-GOAL",
@@ -663,69 +662,6 @@
         "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-CODEX-RUNNER",
         "targetId": "DESIGN-CONFIGURATION-PROMPT-CATALOG"
-      },
-      {
-        "id": "EDGE-SCN-CODE-AUTHORITY-RULE",
-        "kind": "realized_by",
-        "source": "DECLARED",
-        "sourceId": "SCN-CODE-AUTHORITY-001",
-        "targetId": "DESIGN-RULE-GRAPH-CODE-AUTHORITY"
-      },
-      {
-        "id": "EDGE-SCN-CODE-AUTHORITY-SCANNER",
-        "kind": "realized_by",
-        "source": "DERIVED",
-        "sourceId": "SCN-CODE-AUTHORITY-001",
-        "targetId": "DESIGN-COMPONENT-CODE-SCANNER"
-      },
-      {
-        "id": "EDGE-CODE-SCANNER-PRODUCES-SNAPSHOT",
-        "kind": "produces",
-        "source": "DERIVED",
-        "sourceId": "DESIGN-COMPONENT-CODE-SCANNER",
-        "targetId": "DESIGN-ENTITY-CODE-SNAPSHOT"
-      },
-      {
-        "id": "EDGE-CODE-SCANNER-CREATES-ANCHOR",
-        "kind": "creates",
-        "source": "DERIVED",
-        "sourceId": "DESIGN-COMPONENT-CODE-SCANNER",
-        "targetId": "DESIGN-ENTITY-CODE-ANCHOR"
-      },
-      {
-        "id": "EDGE-CODE-SCANNER-READS-REPOSITORY",
-        "kind": "reads",
-        "source": "DERIVED",
-        "sourceId": "DESIGN-COMPONENT-CODE-SCANNER",
-        "targetId": "DESIGN-BOUNDARY-TARGET-REPOSITORY"
-      },
-      {
-        "id": "EDGE-CODE-AUTHORITY-CONSTRAINS-SCANNER",
-        "kind": "constrains",
-        "source": "DECLARED",
-        "sourceId": "DESIGN-RULE-GRAPH-CODE-AUTHORITY",
-        "targetId": "DESIGN-COMPONENT-CODE-SCANNER"
-      },
-      {
-        "id": "EDGE-CODE-AUTHORITY-CONSTRAINS-VALIDATOR",
-        "kind": "constrains",
-        "source": "DECLARED",
-        "sourceId": "DESIGN-RULE-GRAPH-CODE-AUTHORITY",
-        "targetId": "DESIGN-COMPONENT-GRAPH-VALIDATOR"
-      },
-      {
-        "id": "EDGE-VALIDATOR-READS-SNAPSHOT",
-        "kind": "reads",
-        "source": "DERIVED",
-        "sourceId": "DESIGN-COMPONENT-GRAPH-VALIDATOR",
-        "targetId": "DESIGN-ENTITY-CODE-SNAPSHOT"
-      },
-      {
-        "id": "EDGE-VALIDATOR-READS-ANCHOR",
-        "kind": "reads",
-        "source": "DERIVED",
-        "sourceId": "DESIGN-COMPONENT-GRAPH-VALIDATOR",
-        "targetId": "DESIGN-ENTITY-CODE-ANCHOR"
       }
     ],
     "entryNodeIds": [
@@ -1091,32 +1027,6 @@
       },
       {
         "details": {
-          "given": [
-            "统一图需要描述一个或多个仓库在固定 Git commit 上的实际实现",
-            "扫描范围和确定性提取器版本已经明确"
-          ],
-          "then": [
-            "每个代码快照记录仓库身份、commit、tree、扫描范围、提取器版本和扫描哈希",
-            "每个静态推导的实现节点都引用代码快照并具有可定位源码锚点，Repository 节点除外",
-            "每条静态推导的调用、读写和外部调用关系都引用代码快照及表达式锚点",
-            "AI 生成的代码关系只能标记为 INFERRED 或 UNRESOLVED",
-            "需求到设计、设计到实现以及场景或实现到测试的跨层追踪方向固定且可校验",
-            "本次变更范围内无法扫描、锚定或追踪到批准场景的生产代码阻断自动 Review",
-            "未改动的历史缺口保持可见但不阻断无关变更"
-          ],
-          "when": [
-            "系统生成代码实现层或校验 MR 的图与代码关系"
-          ]
-        },
-        "id": "SCN-CODE-AUTHORITY-001",
-        "kind": "Scenario",
-        "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "统一图只接受具有固定代码快照和源码锚点的代码事实，并对本次变更缺口 fail closed。",
-        "title": "验证图与代码的权威关系"
-      },
-      {
-        "details": {
           "interaction": [
             "统一图支持放大、缩小、平移和视图复位",
             "点击节点同步更新右侧节点详情",
@@ -1449,89 +1359,17 @@
         "source": "DECLARED",
         "summary": "按 AI 职责拆分并版本化 Prompt；程序负责事实提取、图校验、测试执行和放行。",
         "title": "版本化 Prompt 目录"
-      },
-      {
-        "details": {
-          "authority": "固定 Git commit",
-          "fields": [
-            "repositoryId",
-            "commitSha",
-            "treeHash",
-            "scanHash",
-            "roots",
-            "extractors"
-          ],
-          "staleRule": "运行时 HEAD 不同于 commitSha 时只标记过期，不修改旧 revision"
-        },
-        "id": "DESIGN-ENTITY-CODE-SNAPSHOT",
-        "kind": "DataEntity",
-        "layer": "design",
-        "source": "DECLARED",
-        "summary": "固定代码事实成立的仓库 commit、扫描范围、提取器版本和确定性扫描哈希。",
-        "title": "CodeSnapshot 契约"
-      },
-      {
-        "details": {
-          "fields": [
-            "snapshotId",
-            "path",
-            "range",
-            "extractorId",
-            "fingerprint"
-          ],
-          "identityRule": "commit、行号和内容哈希不进入稳定节点 ID",
-          "pathRule": "只能使用仓库内规范化相对路径"
-        },
-        "id": "DESIGN-ENTITY-CODE-ANCHOR",
-        "kind": "DataEntity",
-        "layer": "design",
-        "source": "DECLARED",
-        "summary": "把实现节点和技术关系定位到固定代码快照中的声明或表达式范围。",
-        "title": "CodeAnchor 契约"
-      },
-      {
-        "details": {
-          "input": "固定 Git commit、扫描根目录和提取器版本",
-          "output": "代码快照、实现节点、技术关系、源码锚点和明确扫描缺口",
-          "permission": "只读仓库；只能向新的候选 revision 写入 DERIVED 实现事实",
-          "rule": "相同 commit、范围、提取器版本和配置必须生成相同 scanHash"
-        },
-        "id": "DESIGN-COMPONENT-CODE-SCANNER",
-        "kind": "Component",
-        "layer": "design",
-        "source": "DERIVED",
-        "summary": "从固定 Git commit 确定性提取实现事实和缺口，不使用 AI 猜测调用关系。",
-        "title": "确定性代码扫描器"
-      },
-      {
-        "details": {
-          "authorities": {
-            "implementation": "Git commit",
-            "relationship": "版本化统一图",
-            "requirementAndDesign": "用户批准 revision",
-            "runtime": "测试和运行证据"
-          },
-          "changedGapPolicy": "本次变更范围内无法扫描、锚定或追踪的生产代码阻断自动 Review",
-          "legacyGapPolicy": "未改动历史缺口保持可见，不阻断无关变更",
-          "writeRule": "扫描器只能写 DERIVED，运行证据只能写 OBSERVED，AI 只能写 INFERRED 或 UNRESOLVED，用户声明不能直接成为实现事实"
-        },
-        "id": "DESIGN-RULE-GRAPH-CODE-AUTHORITY",
-        "kind": "Rule",
-        "layer": "design",
-        "source": "DECLARED",
-        "summary": "需求设计、Git、扫描结果和运行证据各自保持权威，通过统一图双向追踪并单向授权。",
-        "title": "图与代码权威门禁"
       }
     ]
   },
   "modelId": "MODEL-REVIEW-TOOL",
   "revision": {
-    "approvable": true,
-    "baseRevisionId": "REV-REVIEW-TOOL-009",
-    "contentHash": "0761aaf0f2d72a508dc0f031be75b42a6bbc4fdd3442b2b16ebdd36a9c403dfd",
-    "id": "REV-REVIEW-TOOL-010",
-    "status": "CANDIDATE"
+    "approvable": false,
+    "baseRevisionId": "REV-REVIEW-TOOL-008",
+    "contentHash": "ea653769dc0f8340f24e4568fc1035c8347d51bcfffb73bba1a095a732243d50",
+    "id": "REV-REVIEW-TOOL-009",
+    "status": "APPROVED"
   },
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "title": "通过统一交互图驱动需求与开发"
 }

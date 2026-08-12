@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import cast
 
 from jsonschema import Draft202012Validator
@@ -13,6 +13,32 @@ type JsonObject = dict[str, JsonValue]
 
 LAYER_IDS = frozenset({"requirement", "design", "implementation", "verification"})
 FLOW_EDGE_KINDS = frozenset({"next", "branch", "produces"})
+TECHNICAL_FACT_EDGE_KINDS = frozenset(
+    {
+        "contains",
+        "exposes",
+        "calls",
+        "reads",
+        "writes",
+        "invokes",
+        "creates",
+        "renders",
+        "configured_by",
+    }
+)
+ANCHORED_TECHNICAL_EDGE_KINDS = TECHNICAL_FACT_EDGE_KINDS - {"contains"}
+TRACE_EDGE_LAYERS = {
+    "realized_by": (frozenset({"requirement"}), frozenset({"design"})),
+    "implemented_by": (
+        frozenset({"requirement", "design"}),
+        frozenset({"implementation"}),
+    ),
+    "verified_by": (
+        frozenset({"requirement", "implementation"}),
+        frozenset({"verification"}),
+    ),
+    "evidenced_by": (LAYER_IDS, frozenset({"verification"})),
+}
 
 
 class GraphError(ValueError):
@@ -62,6 +88,9 @@ def validate_document(document: JsonObject, schema: JsonObject) -> None:
         target_id = _string(edge.get("targetId"), "edge.targetId")
         if source_id not in known_nodes or target_id not in known_nodes:
             raise GraphError(f"关系端点不存在：{edge['id']}")
+
+    _validate_trace_edges(nodes, edges)
+    _validate_code_contract(graph, nodes, edges)
 
     for node in nodes:
         if node.get("kind") != "Scenario":
@@ -283,6 +312,149 @@ def _mainline_ids(graph: JsonObject, edges: list[JsonObject]) -> set[str]:
                 result.add(target_id)
                 pending.append(target_id)
     return result
+
+
+def _validate_code_contract(
+    graph: JsonObject, nodes: list[JsonObject], edges: list[JsonObject]
+) -> None:
+    snapshots = [
+        _object(value, "codeSnapshot")
+        for value in _list(graph.get("codeSnapshots", []), "graph.codeSnapshots")
+    ]
+    snapshot_ids = [_string(snapshot.get("id"), "codeSnapshot.id") for snapshot in snapshots]
+    if len(snapshot_ids) != len(set(snapshot_ids)):
+        raise GraphError("统一图包含重复代码快照 ID")
+
+    extractors_by_snapshot: dict[str, set[str]] = {}
+    for snapshot in snapshots:
+        snapshot_id = _string(snapshot.get("id"), "codeSnapshot.id")
+        for root in _strings(snapshot.get("roots"), f"{snapshot_id}.roots"):
+            _relative_path(root, f"{snapshot_id}.roots")
+        extractors = [
+            _object(value, f"{snapshot_id}.extractors")
+            for value in _list(snapshot.get("extractors"), f"{snapshot_id}.extractors")
+        ]
+        extractor_ids = {
+            _string(extractor.get("id"), f"{snapshot_id}.extractor.id") for extractor in extractors
+        }
+        if len(extractor_ids) != len(extractors):
+            raise GraphError(f"代码快照包含重复提取器 ID：{snapshot_id}")
+        extractors_by_snapshot[snapshot_id] = extractor_ids
+
+    known_snapshots = set(snapshot_ids)
+    nodes_by_id = {_string(node.get("id"), "node.id"): node for node in nodes}
+    for node in nodes:
+        snapshot_id = _validate_snapshot_reference(node, known_snapshots, extractors_by_snapshot)
+        if node.get("layer") != "implementation":
+            if snapshot_id is not None:
+                raise GraphError(f"非实现节点不得声明代码快照：{node.get('id', '未知节点')}")
+            continue
+        node_id = _string(node.get("id"), "node.id")
+        if snapshot_id is None:
+            raise GraphError(f"实现节点缺少代码快照：{node_id}")
+        if node.get("source") == "DECLARED":
+            raise GraphError(f"实现事实不能标记为用户声明：{node_id}")
+        if (
+            node.get("source") == "DERIVED"
+            and node.get("kind") != "Repository"
+            and node.get("anchors") is None
+        ):
+            raise GraphError(f"静态实现节点缺少源码锚点：{node_id}")
+
+    for edge in edges:
+        snapshot_id = _validate_snapshot_reference(edge, known_snapshots, extractors_by_snapshot)
+        source_node = nodes_by_id[_string(edge.get("sourceId"), "edge.sourceId")]
+        target_node = nodes_by_id[_string(edge.get("targetId"), "edge.targetId")]
+        implementation_nodes = [
+            node for node in (source_node, target_node) if node.get("layer") == "implementation"
+        ]
+        kind = edge.get("kind")
+        if not implementation_nodes:
+            if snapshot_id is not None:
+                raise GraphError(f"非实现关系不得声明代码快照：{edge.get('id', '未知关系')}")
+            continue
+        if kind not in TECHNICAL_FACT_EDGE_KINDS:
+            continue
+        edge_id = _string(edge.get("id"), "edge.id")
+        if snapshot_id is None:
+            raise GraphError(f"实现关系缺少代码快照：{edge_id}")
+        if edge.get("source") == "DECLARED":
+            raise GraphError(f"实现事实关系不能标记为用户声明：{edge_id}")
+        endpoint_snapshots = {node.get("snapshotId") for node in implementation_nodes}
+        if endpoint_snapshots != {snapshot_id}:
+            raise GraphError(f"实现关系不能静默跨越代码快照：{edge_id}")
+        if (
+            edge.get("source") == "DERIVED"
+            and kind in ANCHORED_TECHNICAL_EDGE_KINDS
+            and edge.get("anchors") is None
+        ):
+            raise GraphError(f"静态实现关系缺少源码锚点：{edge_id}")
+
+
+def _validate_snapshot_reference(
+    item: JsonObject,
+    known_snapshots: set[str],
+    extractors_by_snapshot: dict[str, set[str]],
+) -> str | None:
+    value = item.get("snapshotId")
+    if value is None:
+        if item.get("anchors") is not None:
+            raise GraphError(f"源码锚点缺少所属代码快照：{item.get('id', '未知元素')}")
+        return None
+    snapshot_id = _string(value, "snapshotId")
+    if snapshot_id not in known_snapshots:
+        raise GraphError(f"引用了不存在的代码快照：{snapshot_id}")
+    if item.get("anchors") is None:
+        return snapshot_id
+    for value in _list(item.get("anchors"), f"{item.get('id', '元素')}.anchors"):
+        anchor = _object(value, "codeAnchor")
+        anchor_snapshot_id = _string(anchor.get("snapshotId"), "codeAnchor.snapshotId")
+        if anchor_snapshot_id != snapshot_id:
+            raise GraphError(f"源码锚点与元素代码快照不一致：{item.get('id', '未知元素')}")
+        _relative_path(anchor.get("path"), "codeAnchor.path")
+        extractor_id = _string(anchor.get("extractorId"), "codeAnchor.extractorId")
+        if extractor_id not in extractors_by_snapshot[snapshot_id]:
+            raise GraphError(f"源码锚点引用了未知提取器：{extractor_id}")
+        source_range = _object(anchor.get("range"), "codeAnchor.range")
+        start = _object(source_range.get("start"), "codeAnchor.range.start")
+        end = _object(source_range.get("end"), "codeAnchor.range.end")
+        start_position = (int(start["line"]), int(start["column"]))
+        end_position = (int(end["line"]), int(end["column"]))
+        if end_position <= start_position:
+            raise GraphError(f"源码锚点结束位置必须晚于开始位置：{item.get('id', '未知元素')}")
+    return snapshot_id
+
+
+def _validate_trace_edges(nodes: list[JsonObject], edges: list[JsonObject]) -> None:
+    nodes_by_id = {_string(node.get("id"), "node.id"): node for node in nodes}
+    for edge in edges:
+        kind = edge.get("kind")
+        if kind not in TRACE_EDGE_LAYERS:
+            continue
+        source_layers, target_layers = TRACE_EDGE_LAYERS[kind]
+        source_node = nodes_by_id[_string(edge.get("sourceId"), "edge.sourceId")]
+        target_node = nodes_by_id[_string(edge.get("targetId"), "edge.targetId")]
+        if (
+            source_node.get("layer") not in source_layers
+            or target_node.get("layer") not in target_layers
+        ):
+            raise GraphError(f"跨层追踪方向无效：{edge.get('id', '未知关系')}")
+
+
+def _relative_path(value: JsonValue | None, name: str) -> str:
+    path = _string(value, name)
+    normalized = str(PurePosixPath(path))
+    invalid = (
+        path.startswith("/")
+        or PureWindowsPath(path).is_absolute()
+        or "\\" in path
+        or "\0" in path
+        or ".." in PurePosixPath(path).parts
+        or path != normalized
+    )
+    if invalid:
+        raise GraphError(f"{name} 必须是仓库内规范化相对路径")
+    return path
 
 
 def _dot(value: str) -> str:
