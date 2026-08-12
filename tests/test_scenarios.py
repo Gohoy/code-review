@@ -399,9 +399,17 @@ def test_启动时沿同一revision链加载内置候选(tmp_path: Path, scenari
     store = Store(tmp_path / "review.sqlite3", schema())
     approved = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-008.json")
     base = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-009.json")
+    stale = copy.deepcopy(seed())
+    stale_graph = cast(JsonObject, stale["graph"])
+    stale_nodes = cast(list[JsonObject], stale_graph["nodes"])
+    stale_nodes[0]["summary"] = "过期候选内容"
+    cast(JsonObject, stale["revision"])["contentHash"] = graph_hash(stale_graph)
     store.initialize(approved)
+    store.initialize(stale, (base,))
     store.initialize(seed(), (base,))
-    assert store.state()["revision"]["revision"]["id"] == "REV-REVIEW-TOOL-010"
+    current = store.state()["revision"]["revision"]
+    assert current["id"] == "REV-REVIEW-TOOL-010"
+    assert current["contentHash"] == seed()["revision"]["contentHash"]
     assert scenario_id.startswith("SCN-")
 
 

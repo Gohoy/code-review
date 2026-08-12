@@ -152,6 +152,21 @@ class Store:
                         now,
                     ),
                 )
+                if item["status"] == "CANDIDATE":
+                    connection.execute(
+                        """
+                        UPDATE revision
+                        SET base_revision_id = ?, content_json = ?, content_hash = ?, approvable = ?
+                        WHERE id = ? AND status = 'CANDIDATE'
+                        """,
+                        (
+                            item["baseRevisionId"],
+                            canonical_json(document),
+                            item["contentHash"],
+                            int(bool(item["approvable"])),
+                            item["id"],
+                        ),
+                    )
             connection.execute(
                 """
                 UPDATE implementation_run
