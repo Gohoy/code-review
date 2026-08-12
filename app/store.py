@@ -434,6 +434,11 @@ class Store:
     def start_run(self, run_id: str, worktree: Path) -> None:
         self._update_run(run_id, "RUNNING", worktree=str(worktree))
 
+    def update_run_progress(self, run_id: str, status: str, summary: str) -> None:
+        if status not in {"VERIFYING", "MERGING"}:
+            raise StoreError("未知自动交付状态")
+        self._update_run(run_id, status, summary=summary)
+
     def finish_run(self, run_id: str, result: JsonObject) -> None:
         status = result.get("status")
         if status not in {"COMPLETED", "NEEDS_INPUT", "FAILED"}:

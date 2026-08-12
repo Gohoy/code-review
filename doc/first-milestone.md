@@ -17,8 +17,10 @@ flowchart LR
     D -->|"是"| P["AI 更新需求和技术设计图"]
     P --> R{"用户是否批准需求和设计？"}
     R -->|"需要修改"| U
-    R -->|"批准并开始开发"| I["AI 在隔离 Worktree 开发"]
-    I --> O["显示开发状态和结果"]
+    R -->|"批准并自动交付"| I["AI 在隔离 Worktree 开发"]
+    I --> V["系统执行固定验证"]
+    V --> M["安全快进合并本地分支"]
+    M --> O["显示自动交付状态和结果"]
 ```
 
 页面默认展示这条需求主线。技术设计是同一图中的一等节点：用户点击节点或打开“技术设计”层后，CLI、SQLite、API、Git 和 worktree 在原画布展开；未来实际方法和测试也按层展开。
@@ -30,11 +32,13 @@ flowchart LR
 1. 用户发送自然语言需求。
 2. 本机 Codex CLI 只读生成统一图的结构化节点与关系差异，包括需求、技术设计、场景和必要问题。
 3. 系统把差异应用到上一快照，校验并生成新候选 revision；页面实时刷新同一张交互图。
-4. 用户点击“批准并开始开发”，系统原子冻结当前 revision 的需求层和技术设计层。
+4. 用户点击“批准并自动交付”，系统原子冻结当前 revision 的需求层和技术设计层。
 5. 系统创建隔离 Git worktree，用本机 Codex CLI 按批准 revision 开发。
-6. 页面显示开发运行状态、worktree 和结果摘要。
+6. Codex 完成后，系统依次执行固定的 uv 与 npm 验证命令。
+7. 验证通过且主工作区仍干净、HEAD 未漂移时，系统提交变化并快进合并当前本地分支。
+8. 页面显示开发、验证、合并状态、worktree 和结果摘要。
 
-自动执行验收测试、当前代码建模、GitLab MR、多用户、远程部署和 OpenAI/Anthropic API 不在本里程碑中。
+当前代码建模、GitLab MR、多用户、远程部署和 OpenAI/Anthropic API 不在本里程碑中。
 
 ## 3. 最小组件
 
@@ -44,7 +48,7 @@ flowchart LR
 - 需求协调：串行处理对话、候选 revision、批准和开发运行。
 - SQLite：保存消息、不可变 revision 和运行状态；凭证不入库。
 - Codex 运行器：只执行固定参数数组，不经过 shell。
-- Git worktree 管理：只在批准事务成功后执行固定 `git worktree add`。
+- Git worktree 管理：批准后创建 worktree；验证成功后固定提交并执行 `git merge --ff-only`。
 - 统一图校验与投影：校验完整图，再按 revision、层级和焦点选择子图，由固定 `dot -Tsvg` 生成带节点 ID 的 SVG。
 
 不建立 provider 接口、任务队列、插件系统或前后端两个工程。后续真的切换协议时，再以新的批准需求替换 Codex 运行器。
@@ -86,7 +90,7 @@ codex exec --ephemeral --ignore-user-config --sandbox workspace-write \
 
 - 工作目录固定为本次运行新建的 worktree。
 - 标准输入包含批准 revision 的规范化 JSON 原文和 SHA-256 哈希。
-- Prompt 明确禁止修改批准模型，并要求结果只能是“完成”“需要补充信息”或“失败”。
+- Prompt 明确禁止修改批准模型和执行 Git 提交或合并，并要求结果只能是“完成”“需要补充信息”或“失败”。
 - 应用不接收用户提供的命令、参数或可执行文件路径。
 - 第一版宿主机直接运行；不向 Docker 复制或挂载 Codex 登录状态。
 
@@ -99,7 +103,7 @@ codex exec --ephemeral --ignore-user-config --sandbox workspace-write \
 | `POST /api/message` | 保存消息并触发一次只读建模 | 消息非空；同一需求同时只允许一个 AI 调用 |
 | `POST /api/revision/{id}/approve-and-start` | 冻结需求与设计并创建后台开发运行 | 请求哈希等于当前候选；无 `UNRESOLVED` 节点；图完整；尚未批准 |
 
-批准接口只接受 revision ID 和内容哈希。按钮文字固定为“批准并开始开发”；自然语言消息永远不会调用该接口。
+批准接口只接受 revision ID 和内容哈希。按钮文字固定为“批准并自动交付”；自然语言消息永远不会调用该接口。
 
 ## 6. 数据与事务
 
@@ -132,6 +136,7 @@ SQLite 只需五张表：
 - 页面用短轮询读取状态；第一版不引入 WebSocket、SSE 或队列。
 - 服务重启时仍处于“运行中”的记录改为“失败”，由用户显式重试；不猜测子进程结果。
 - 开发中遇到新决策时，运行停在“需要补充信息”，问题返回对话；新的回答产生新 revision，旧批准 revision 与 worktree 保留。
+- 开发完成后依次进入 `VERIFYING`、`MERGING`；任何命令失败、主工作区不干净或 HEAD 漂移都会进入 `FAILED`，不覆盖主工作区。
 
 ## 8. 验收门禁
 
@@ -147,5 +152,6 @@ SQLite 只需五张表：
 - `SCN-DEV-CODEX-001`：实现只写隔离 worktree，输入与批准 revision 一致。
 - `SCN-DEV-FAIL-001`：CLI、Schema、超时和 Git 失败均可见且不伪装成功。
 - `SCN-DEV-QUESTION-001`：开发中新问题返回需求对话并要求重新批准。
+- `SCN-LOCAL-AUTO-DELIVERY-001`：固定验证全部成功后才提交并安全快进合并本地分支。
 
 测试名称必须包含相应场景 ID。浏览器验收必须验证统一图占满主页面、对话默认折叠、缩放和平移、节点选择与详情联动、批准按钮门禁和运行状态更新。

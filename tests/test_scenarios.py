@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import copy
 import sqlite3
+import subprocess
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-from app.config import ROOT
+from app.config import ROOT, Settings
 from app.graph import (
     GraphError,
     JsonObject,
@@ -30,12 +31,16 @@ class FakeRunner:
         diff: Callable[[JsonObject], JsonObject] | None = None,
         result: JsonObject | None = None,
         error: Exception | None = None,
+        verification_error: Exception | None = None,
     ) -> None:
         self.diff = diff or valid_diff
         self.result = result or {"status": "COMPLETED", "summary": "开发完成", "question": ""}
         self.error = error
+        self.verification_error = verification_error
         self.worktree: Path | None = None
         self.implemented_hash: str | None = None
+        self.verified = False
+        self.merged = False
 
     async def dependency_status(self) -> JsonObject:
         return {"codex": "可用", "git": "可用", "dot": "可用"}
@@ -53,6 +58,16 @@ class FakeRunner:
         revision = cast(JsonObject, document["revision"])
         self.implemented_hash = str(revision["contentHash"])
         return self.result
+
+    async def verify(self, _: Path) -> str:
+        self.verified = True
+        if self.verification_error:
+            raise self.verification_error
+        return "固定验证全部通过"
+
+    async def merge(self, _: Path, __: str) -> str:
+        self.merged = True
+        return "已自动合并到本地分支"
 
     async def render(self, dot_source: str) -> str:
         return f"<svg>{dot_source}</svg>"
@@ -201,8 +216,11 @@ def test_明确批准后才按同一哈希开发(tmp_path: Path, scenario_id: st
         completed = await service.state()
         assert completed["implementationRun"]["id"] == run_id
         assert completed["implementationRun"]["status"] == "COMPLETED"
+        assert "固定验证全部通过" in completed["implementationRun"]["summary"]
         assert runner.worktree is not None
         assert runner.implemented_hash == revision["contentHash"]
+        assert runner.verified
+        assert runner.merged
         with (
             sqlite3.connect(tmp_path / "review.sqlite3") as connection,
             pytest.raises(sqlite3.IntegrityError),
@@ -210,6 +228,81 @@ def test_明确批准后才按同一哈希开发(tmp_path: Path, scenario_id: st
             connection.execute(
                 "UPDATE revision SET content_json = '{}' WHERE id = ?", (revision["id"],)
             )
+        assert scenario_id.startswith("SCN-")
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("scenario_id", ["SCN-LOCAL-AUTO-DELIVERY-001"], ids=lambda value: value)
+def test_本地验证通过后才自动合并(tmp_path: Path, scenario_id: str) -> None:
+    async def scenario() -> None:
+        runner = FakeRunner(verification_error=RunnerError("固定验证失败"))
+        service = make_service(tmp_path, runner)
+        await service.initialize()
+        await service.submit_message("补充本地自动交付场景。")
+        await settle(service)
+        state = await service.state()
+        revision = state["revision"]["revision"]
+        await service.approve_and_start(revision["id"], revision["contentHash"])
+        await settle(service)
+        failed = await service.state()
+        assert failed["implementationRun"]["status"] == "FAILED"
+        assert "固定验证失败" in failed["implementationRun"]["summary"]
+        assert runner.verified
+        assert not runner.merged
+        assert scenario_id.startswith("SCN-")
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("scenario_id", ["SCN-LOCAL-AUTO-DELIVERY-001"], ids=lambda value: value)
+def test_本地自动合并只接受干净原基线(tmp_path: Path, scenario_id: str) -> None:
+    repository = tmp_path / "repository"
+
+    def git(*arguments: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repository), *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    repository.mkdir()
+    git("init", "--initial-branch=main")
+    git("config", "user.name", "测试用户")
+    git("config", "user.email", "test@example.invalid")
+    (repository / "功能.txt").write_text("旧实现\n", encoding="utf-8")
+    git("add", "功能.txt")
+    git("commit", "-m", "chore: 初始化测试仓库")
+    worktree = tmp_path / "worktree"
+    git("worktree", "add", "--detach", str(worktree), "HEAD")
+    (worktree / "功能.txt").write_text("新实现\n", encoding="utf-8")
+    settings = Settings(
+        host="127.0.0.1",
+        port=0,
+        data_dir=tmp_path / "data",
+        repository=repository,
+        worktree_root=tmp_path / "managed-worktree",
+        web_dir=ROOT / "prototype" / "dist" / "client",
+        model_path=ROOT / "model" / "review-tool.json",
+        revision_dir=ROOT / "model" / "revision",
+        graph_schema_path=ROOT / "model" / "graph.schema.json",
+        model_diff_schema_path=ROOT / "app" / "schema" / "model-diff.schema.json",
+        implementation_schema_path=ROOT / "app" / "schema" / "implementation-result.schema.json",
+    )
+    runner = Runner(settings)
+
+    async def scenario() -> None:
+        result = await runner.merge(worktree, "REV-TEST-001")
+        assert "main" in result
+        assert (repository / "功能.txt").read_text(encoding="utf-8") == "新实现\n"
+
+        dirty_worktree = tmp_path / "dirty-worktree"
+        git("worktree", "add", "--detach", str(dirty_worktree), "HEAD")
+        (dirty_worktree / "功能.txt").write_text("下一版\n", encoding="utf-8")
+        (repository / "功能.txt").write_text("本地未提交变化\n", encoding="utf-8")
+        with pytest.raises(RunnerError, match="未提交变化"):
+            await runner.merge(dirty_worktree, "REV-TEST-002")
         assert scenario_id.startswith("SCN-")
 
     run(scenario())
