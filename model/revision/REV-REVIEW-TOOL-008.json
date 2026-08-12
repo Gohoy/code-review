@@ -654,14 +654,6 @@
         "source": "DECLARED",
         "sourceId": "SCN-GRAPH-EXPLORE-001",
         "targetId": "DESIGN-SCREEN-CONVERSATION-GRAPH"
-      },
-      {
-        "id": "EDGE-CODEX-RUNNER-CONFIGURED-BY-PROMPT-CATALOG",
-        "kind": "configured_by",
-        "label": "按阶段选择版本化 Prompt 契约",
-        "source": "DECLARED",
-        "sourceId": "DESIGN-COMPONENT-CODEX-RUNNER",
-        "targetId": "DESIGN-CONFIGURATION-PROMPT-CATALOG"
       }
     ],
     "entryNodeIds": [
@@ -1336,38 +1328,15 @@
         "source": "INFERRED",
         "summary": "保存目标仓库身份及其当前统一图候选 revision，作为统一图 revision 链的归属主体。",
         "title": "repository 表"
-      },
-      {
-        "details": {
-          "commonContract": "所有 Prompt 共享可信输入、工具权限、不可信数据、ABSTAIN、UNRESOLVED 和结构化输出规则",
-          "evalRule": "Prompt 变更必须重放版本化真实案例，结构校验失败或虚构证据均不得上线",
-          "promptIds": [
-            "repository-model",
-            "requirement-dialogue",
-            "requirement-graph",
-            "technical-design",
-            "implementation",
-            "test-design",
-            "semantic-review",
-            "failure-diagnosis"
-          ],
-          "versionRule": "每次运行记录 Prompt ID、版本、模型、图 revision 和输入输出哈希"
-        },
-        "id": "DESIGN-CONFIGURATION-PROMPT-CATALOG",
-        "kind": "Configuration",
-        "layer": "design",
-        "source": "DECLARED",
-        "summary": "按 AI 职责拆分并版本化 Prompt；程序负责事实提取、图校验、测试执行和放行。",
-        "title": "版本化 Prompt 目录"
       }
     ]
   },
   "modelId": "MODEL-REVIEW-TOOL",
   "revision": {
     "approvable": false,
-    "baseRevisionId": "REV-REVIEW-TOOL-008",
-    "contentHash": "ea653769dc0f8340f24e4568fc1035c8347d51bcfffb73bba1a095a732243d50",
-    "id": "REV-REVIEW-TOOL-009",
+    "baseRevisionId": "REV-REVIEW-TOOL-007",
+    "contentHash": "db5322eefe4f08f10608b38a10ef577016b679371d6dfeb8f8f3514d18bf4a93",
+    "id": "REV-REVIEW-TOOL-008",
     "status": "APPROVED"
   },
   "schemaVersion": 1,

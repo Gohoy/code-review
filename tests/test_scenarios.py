@@ -107,9 +107,11 @@ def unresolved_diff(document: JsonObject) -> JsonObject:
 
 
 def make_service(tmp_path: Path, runner: FakeRunner) -> ReviewService:
+    document = seed()
+    revision = cast(JsonObject, document["revision"])
     store = Store(tmp_path / "review.sqlite3", schema())
-    history = (load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-007.json"),)
-    return ReviewService(store, cast(Runner, runner), seed(), history)
+    history = (load_object(ROOT / "model" / "revision" / f"{revision['baseRevisionId']}.json"),)
+    return ReviewService(store, cast(Runner, runner), document, history)
 
 
 async def settle(service: ReviewService) -> None:
@@ -137,9 +139,9 @@ def test_对话生成不可变候选revision(tmp_path: Path, scenario_id: str) -
         assert modeling["requirement"]["operationStatus"] == "MODELING"
         await settle(service)
         after = await service.state()
-        assert before["revision"]["revision"]["id"] == "REV-REVIEW-TOOL-008"
-        assert after["revision"]["revision"]["id"] == "REV-REVIEW-TOOL-009"
-        assert after["revision"]["revision"]["baseRevisionId"] == "REV-REVIEW-TOOL-008"
+        before_id = before["revision"]["revision"]["id"]
+        assert after["revision"]["revision"]["id"] != before_id
+        assert after["revision"]["revision"]["baseRevisionId"] == before_id
         assert after["changedNodeIds"] == ["ACTION-SUBMIT-REQUIREMENT"]
         assert scenario_id.startswith("SCN-")
 
@@ -210,10 +212,11 @@ def test_Codex失败不覆盖有效revision(tmp_path: Path, scenario_id: str) ->
     async def scenario() -> None:
         service = make_service(tmp_path, FakeRunner(error=RunnerError("Codex 输出无效")))
         await service.initialize()
+        before = await service.state()
         await service.submit_message("这次输出会失败。")
         await settle(service)
         state = await service.state()
-        assert state["revision"]["revision"]["id"] == "REV-REVIEW-TOOL-008"
+        assert state["revision"]["revision"]["id"] == before["revision"]["revision"]["id"]
         assert state["requirement"]["status"] == "ERROR"
         assert "Codex 输出无效" in state["messages"][-1]["content"]
         assert scenario_id.startswith("SCN-")
@@ -250,7 +253,8 @@ def test_开发中新决策返回对话(tmp_path: Path, scenario_id: str) -> Non
 def test_统一画布投影稳定节点ID和分层(tmp_path: Path, scenario_id: str) -> None:
     del tmp_path
     document = seed()
-    base = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-007.json")
+    revision = cast(JsonObject, document["revision"])
+    base = load_object(ROOT / "model" / "revision" / f"{revision['baseRevisionId']}.json")
     node_ids, edge_ids = changed_ids(base, document)
     source = to_dot(
         document,
