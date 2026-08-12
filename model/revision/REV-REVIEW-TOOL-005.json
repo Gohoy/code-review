@@ -606,54 +606,6 @@
         "source": "DECLARED",
         "sourceId": "DESIGN-DECISION-ANT-DESIGN",
         "targetId": "DESIGN-SCREEN-CONVERSATION-GRAPH"
-      },
-      {
-        "id": "EDGE-SQLITE-CONTAINS-REPOSITORY",
-        "kind": "contains",
-        "label": "保存仓库统一图归属",
-        "source": "INFERRED",
-        "sourceId": "DESIGN-STORE-SQLITE",
-        "targetId": "DESIGN-ENTITY-REPOSITORY"
-      },
-      {
-        "id": "EDGE-REPOSITORY-CONTAINS-REVISION",
-        "kind": "contains",
-        "label": "拥有统一图 revision 链",
-        "source": "DECLARED",
-        "sourceId": "DESIGN-ENTITY-REPOSITORY",
-        "targetId": "DESIGN-ENTITY-REVISION"
-      },
-      {
-        "id": "EDGE-REQUIREMENT-AFFECTS-REVISION",
-        "kind": "affects",
-        "label": "形成节点、关系或分支差异",
-        "source": "DECLARED",
-        "sourceId": "DESIGN-ENTITY-REQUIREMENT",
-        "targetId": "DESIGN-ENTITY-REVISION"
-      },
-      {
-        "id": "EDGE-COORDINATOR-READS-REPOSITORY",
-        "kind": "reads",
-        "label": "读取仓库当前统一图 revision",
-        "source": "INFERRED",
-        "sourceId": "DESIGN-COMPONENT-REQUIREMENT-COORDINATOR",
-        "targetId": "DESIGN-ENTITY-REPOSITORY"
-      },
-      {
-        "id": "EDGE-COORDINATOR-WRITES-REPOSITORY",
-        "kind": "writes",
-        "label": "更新仓库当前候选 revision 引用",
-        "source": "INFERRED",
-        "sourceId": "DESIGN-COMPONENT-REQUIREMENT-COORDINATOR",
-        "targetId": "DESIGN-ENTITY-REPOSITORY"
-      },
-      {
-        "id": "EDGE-GRAPH-EXPLORE-SCREEN",
-        "kind": "realized_by",
-        "label": "由全屏统一图画布、折叠对话和右侧详情面板实现",
-        "source": "DECLARED",
-        "sourceId": "SCN-GRAPH-EXPLORE-001",
-        "targetId": "DESIGN-SCREEN-CONVERSATION-GRAPH"
       }
     ],
     "entryNodeIds": [
@@ -697,8 +649,8 @@
         "kind": "Goal",
         "layer": "requirement",
         "source": "DECLARED",
-        "summary": "为整个仓库维护一张版本化统一图；每个需求只形成节点、关系或分支差异，批准后实现严格引用对应的仓库图 revision。",
-        "title": "用仓库统一图驱动开发"
+        "summary": "在写代码前共同确认需求与技术设计，并让实现严格引用批准版本。",
+        "title": "用统一图驱动开发"
       },
       {
         "details": {},
@@ -706,8 +658,8 @@
         "kind": "Flow",
         "layer": "requirement",
         "source": "DECLARED",
-        "summary": "需求方描述需求，AI 基于仓库当前统一图补齐信息并生成局部差异，批准新的仓库图 revision 后才进入隔离开发。",
-        "title": "从需求对话到仓库统一图和隔离开发"
+        "summary": "需求方描述需求，AI 补齐信息并实时更新统一图，批准后才进入隔离开发。",
+        "title": "从需求对话到隔离开发"
       },
       {
         "details": {},
@@ -751,8 +703,8 @@
         "kind": "Action",
         "layer": "requirement",
         "source": "DECLARED",
-        "summary": "系统校验 AI 返回的结构化图差异，将需求涉及的节点、关系或分支变更原子应用到仓库当前统一图，并展示新的候选 revision。",
-        "title": "AI 更新仓库统一图"
+        "summary": "系统校验 AI 返回的结构化图差异，并在同一画布实时展示需求与技术设计。",
+        "title": "AI 更新需求和技术设计图"
       },
       {
         "details": {},
@@ -845,80 +797,75 @@
       {
         "details": {
           "given": [
-            "页面已加载目标仓库的当前统一图 revision"
+            "页面已加载当前候选 revision"
           ],
           "then": [
-            "系统保留上一仓库 revision",
-            "系统原子应用节点、关系或分支差异并创建新的仓库候选 revision",
-            "页面刷新变化节点、必要上下文和 Diff 状态"
+            "系统保留上一 revision",
+            "原子应用差异并创建新候选",
+            "页面刷新节点、关系和 Diff 状态"
           ],
           "when": [
-            "AI 返回通过 Schema 和图完整性校验的局部差异"
+            "AI 返回通过 Schema 和图完整性校验的差异"
           ]
         },
         "id": "SCN-GRAPH-LIVE-001",
         "kind": "Scenario",
         "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "每次有效 AI 图差异都基于仓库当前 revision 形成新候选，并立即刷新同一画布。",
-        "title": "对话实时更新仓库统一图"
+        "source": "INFERRED",
+        "summary": "每次有效 AI 图差异都会形成新候选 revision，并立即刷新同一画布。",
+        "title": "对话实时更新统一图"
       },
       {
         "details": {
           "given": [
-            "页面已加载目标仓库的当前统一图候选 revision",
-            "统一图包含当前需求变化及必要的仓库上下文"
+            "统一图包含当前候选 revision 及其需求和技术设计变化"
           ],
           "then": [
-            "主页面仅以仓库统一图作为默认核心内容并占满可用空间",
-            "需求对话默认折叠，用户可按需展开",
-            "统一图支持放大、缩小和平移，并可复位视图",
-            "点击节点后右侧显示该节点的原因、影响和验收详情",
-            "缩放、平移、折叠和选中状态不改变统一图模型语义或内容哈希"
+            "变化节点及其必要上下文显示在同一画布",
+            "所选节点的原因、影响和验收详情同步显示",
+            "折叠、布局和筛选不改变模型语义"
           ],
           "when": [
-            "用户进入主页面、缩放或平移统一图，或点击图中节点"
+            "用户切换“仅看变化”或“显示上下文”，或选择图中节点"
           ]
         },
         "id": "SCN-GRAPH-EXPLORE-001",
         "kind": "Scenario",
         "layer": "requirement",
         "source": "DECLARED",
-        "summary": "主页面默认以可缩放的仓库统一图占满可用空间，对话保持折叠，用户可选择节点并在右侧检查详情。",
-        "title": "在主页面审阅仓库统一图"
+        "summary": "页面默认突出当前 revision 的变化，用户可显示上下文、切换层级并检查节点详情。",
+        "title": "在同一画布审阅图差异"
       },
       {
         "details": {
           "given": [
-            "目标仓库已有当前统一图 revision",
-            "页面正在展示该仓库的候选 revision"
+            "页面已经展示一个候选 revision"
           ],
           "then": [
             "系统保留旧 revision",
-            "系统展示该需求导致的新增、修改、删除和影响节点",
-            "不相关的仓库图节点作为未变化上下文保留",
+            "系统展示新候选中的新增、修改、删除和影响节点",
             "任何已批准 revision 均不被修改"
           ],
           "when": [
-            "用户通过对话提出或修改一个需求"
+            "用户通过对话要求修改需求或技术设计"
           ]
         },
         "id": "SCN-REQ-REVISE-001",
         "kind": "Scenario",
         "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "需求只修改仓库统一图中的相关节点、关系或分支，并产生新的候选 revision；旧 revision 保持不变。",
-        "title": "通过需求修改仓库候选图"
+        "source": "INFERRED",
+        "summary": "需求或设计修改产生新候选和语义 Diff，旧 revision 保持不变。",
+        "title": "通过对话修改候选图"
       },
       {
         "details": {
           "given": [
-            "仓库候选图不存在 UNRESOLVED 节点",
-            "浏览器提交的仓库 revision ID 与内容哈希仍是当前候选值"
+            "候选图不存在 UNRESOLVED 节点",
+            "浏览器提交的 revision ID 与内容哈希仍是当前候选值"
           ],
           "then": [
-            "系统在一个事务中冻结完整仓库图 revision 并创建本次需求的开发运行",
-            "批准的仓库图 revision 以后不可修改",
+            "系统在一个事务中冻结 revision 并创建开发运行",
+            "批准图以后不可修改",
             "普通聊天文本不会触发批准"
           ],
           "when": [
@@ -928,9 +875,9 @@
         "id": "SCN-REQ-APPROVE-001",
         "kind": "Scenario",
         "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "明确操作原子冻结用户所见的仓库统一图候选 revision，并以该完整 revision 启动本次需求的开发。",
-        "title": "批准仓库统一图的需求差异"
+        "source": "INFERRED",
+        "summary": "明确操作原子冻结用户所见的需求层与技术设计层，并启动开发。",
+        "title": "明确批准需求和技术设计"
       },
       {
         "details": {
@@ -1019,30 +966,36 @@
       },
       {
         "details": {
+          "diffPresentation": [
+            "新增和修改节点使用绿色标记",
+            "未变化上下文弱化显示",
+            "没有待确认问题时显示可批准状态"
+          ],
           "interaction": [
-            "统一图支持放大、缩小、平移和视图复位",
-            "点击节点同步更新右侧节点详情",
-            "只有“批准并开始开发”操作触发批准"
+            "默认启用“仅看变化”，可切换“显示上下文”",
+            "需求和技术设计是可切换的同图层级",
+            "点击节点同步更新检查器",
+            "只有“批准并开始开发”按钮触发批准"
           ],
           "layout": [
-            "主页面画布占满可用空间，仅展示仓库统一图",
-            "需求对话默认折叠，可由用户按需展开",
-            "点击节点后在右侧显示节点详情面板"
+            "左侧窄栏持续显示需求对话和输入框",
+            "中间画布突出当前 revision 的变化路径",
+            "右侧检查器显示所选节点的原因、影响和验收",
+            "底部固定显示层级计数、继续讨论和批准操作"
           ],
           "responsive": [
-            "桌面端统一图占满主页面，右侧详情按选择状态显示",
-            "窄屏将对话和节点详情放入可展开抽屉，画布保持可缩放和可操作"
+            "桌面同时显示对话、画布和节点详情",
+            "窄屏使用组件断点把对话和详情放入抽屉，画布保持可操作"
           ],
-          "semanticRule": "缩放、平移、折叠、面板开关和节点选择均不进入统一图内容哈希",
-          "styling": "优先使用 Ant Design 组件与响应式属性，仅为统一图画布和必要布局保留少量 CSS",
-          "visualDirection": "以仓库统一图为核心的全屏审阅画布"
+          "styling": "优先使用 Ant Design 组件和属性，仅为画布与必要布局保留少量 CSS，不追求像素级复刻",
+          "visualDirection": "变更叙事审阅台"
         },
         "id": "DESIGN-SCREEN-CONVERSATION-GRAPH",
         "kind": "Screen",
         "layer": "design",
         "source": "DECLARED",
-        "summary": "主页面默认全屏展示仓库统一图；需求对话折叠，节点详情在选择节点后从右侧显示。",
-        "title": "仓库统一图主页面"
+        "summary": "左侧需求对话、中间统一图变更、右侧节点详情和底部批准操作始终在一个页面。",
+        "title": "对话与统一图页面"
       },
       {
         "details": {
@@ -1168,14 +1121,12 @@
         "title": "SQLite"
       },
       {
-        "details": {
-          "graphRole": "需求是仓库统一图中节点、关系或分支变更的上下文"
-        },
+        "details": {},
         "id": "DESIGN-ENTITY-REQUIREMENT",
         "kind": "DataEntity",
         "layer": "design",
         "source": "INFERRED",
-        "summary": "保存需求身份、所属仓库、需求状态及其引起的仓库统一图 revision 差异，不独立拥有统一图 revision 链。",
+        "summary": "保存需求身份、当前候选 revision 和业务状态。",
         "title": "requirement 表"
       },
       {
@@ -1189,14 +1140,13 @@
       },
       {
         "details": {
-          "immutability": "数据库触发器拒绝更新或删除已批准图正文与哈希",
-          "ownership": "revision 归属于仓库"
+          "immutability": "数据库触发器拒绝更新或删除已批准图正文与哈希"
         },
         "id": "DESIGN-ENTITY-REVISION",
         "kind": "DataEntity",
         "layer": "design",
         "source": "INFERRED",
-        "summary": "按仓库保存完整统一图 JSON、基础 revision、状态和 SHA-256 内容哈希；需求记录其引起的候选差异。",
+        "summary": "保存完整统一图 JSON、基础 revision、状态和 SHA-256 内容哈希。",
         "title": "revision 表"
       },
       {
@@ -1286,15 +1236,14 @@
       {
         "details": {
           "notRequired": "第一版不引入图数据库",
-          "scope": "repository",
           "storage": "JSON revision + SQLite"
         },
         "id": "DESIGN-DECISION-UNIFIED-PROPERTY-GRAPH",
         "kind": "Decision",
         "layer": "design",
-        "source": "DECLARED",
-        "summary": "整个仓库共享一张统一图及一条 revision 链；各需求只修改相关节点、关系或分支，UML 只是可导出投影。",
-        "title": "仓库级统一版本化属性图"
+        "source": "INFERRED",
+        "summary": "需求、技术设计、代码实现和测试证据共享节点与关系模型；UML 只是可导出投影。",
+        "title": "统一版本化属性图"
       },
       {
         "details": {
@@ -1317,27 +1266,16 @@
         "source": "DECLARED",
         "summary": "使用成熟组件和响应式属性实现审阅台，减少项目自有 CSS 和交互代码。",
         "title": "前端使用 Ant Design"
-      },
-      {
-        "details": {
-          "graphScope": "每个仓库维护一条统一图 revision 链"
-        },
-        "id": "DESIGN-ENTITY-REPOSITORY",
-        "kind": "DataEntity",
-        "layer": "design",
-        "source": "INFERRED",
-        "summary": "保存目标仓库身份及其当前统一图候选 revision，作为统一图 revision 链的归属主体。",
-        "title": "repository 表"
       }
     ]
   },
   "modelId": "MODEL-REVIEW-TOOL",
   "revision": {
-    "approvable": false,
-    "baseRevisionId": "REV-REVIEW-TOOL-007",
-    "contentHash": "db5322eefe4f08f10608b38a10ef577016b679371d6dfeb8f8f3514d18bf4a93",
-    "id": "REV-REVIEW-TOOL-008",
-    "status": "APPROVED"
+    "approvable": true,
+    "baseRevisionId": "REV-REVIEW-TOOL-004",
+    "contentHash": "e334800a11d58bb681137110de471574a38d3c9520b89640692c36b1399b30d2",
+    "id": "REV-REVIEW-TOOL-005",
+    "status": "CANDIDATE"
   },
   "schemaVersion": 1,
   "title": "通过统一交互图驱动需求与开发"

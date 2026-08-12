@@ -22,6 +22,9 @@ import {
   CommentOutlined,
   InfoCircleOutlined,
   MenuOutlined,
+  MinusOutlined,
+  PlusOutlined,
+  ReloadOutlined,
   SendOutlined,
 } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -150,6 +153,8 @@ export function ReviewApp() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [svg, setSvg] = useState("");
   const [graphError, setGraphError] = useState("");
+  const [viewport, setViewport] = useState({ scale: 1, x: 0, y: 0 });
+  const dragRef = useRef(null);
   const inputRef = useRef(null);
   const graphRef = useRef(null);
 
@@ -177,13 +182,8 @@ export function ReviewApp() {
   );
 
   useEffect(() => {
-    if (nodes.length && !nodes.some((node) => node.id === selectedId)) {
-      const changed = [...(state?.changedNodeIds || [])]
-        .reverse()
-        .find((nodeId) => nodes.some((node) => node.id === nodeId));
-      setSelectedId(changed || graph.entryNodeIds?.[0] || nodes[0].id);
-    }
-  }, [graph, nodes, selectedId, state?.changedNodeIds]);
+    if (selectedId && !nodes.some((node) => node.id === selectedId)) setSelectedId(null);
+  }, [nodes, selectedId]);
 
   useEffect(() => {
     if (!revision) return;
@@ -241,8 +241,31 @@ export function ReviewApp() {
     if (!desktop) setInspectorOpen(true);
   }
 
+  function zoomBy(factor) {
+    setViewport((current) => ({ ...current, scale: Math.min(2.5, Math.max(0.35, current.scale * factor)) }));
+  }
+
+  function beginPan(event) {
+    if (event.button !== 0 || event.target.closest?.("g.node")) return;
+    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function movePan(event) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - drag.x;
+    const deltaY = event.clientY - drag.y;
+    dragRef.current = { ...drag, x: event.clientX, y: event.clientY };
+    setViewport((current) => ({ ...current, x: current.x + deltaX, y: current.y + deltaY }));
+  }
+
+  function endPan(event) {
+    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+  }
+
   function discuss() {
-    if (!desktop) setConversationOpen(true);
+    setConversationOpen(true);
     window.setTimeout(() => inputRef.current?.focus(), 100);
   }
 
@@ -284,7 +307,6 @@ export function ReviewApp() {
 
   return (
     <Layout className="review-shell">
-      {desktop && <Sider width={320} theme="light" className="side-panel">{conversation}</Sider>}
       <Layout className="main-column">
         <Header className="workspace-header">
           <Flex justify="space-between" align="flex-start" gap={12} wrap>
@@ -300,12 +322,10 @@ export function ReviewApp() {
                 ) : <Text type="danger">{approvalErrors.length} 个批准阻断</Text>}
               </Space>
             </div>
-            {!desktop && (
-              <Space>
-                <Button icon={<CommentOutlined />} onClick={() => setConversationOpen(true)}>对话</Button>
-                <Button icon={<MenuOutlined />} onClick={() => setInspectorOpen(true)}>详情</Button>
-              </Space>
-            )}
+            <Space>
+              <Button icon={<CommentOutlined />} onClick={() => setConversationOpen(true)}>对话</Button>
+              {!desktop && <Button icon={<MenuOutlined />} disabled={!selected} onClick={() => setInspectorOpen(true)}>详情</Button>}
+            </Space>
           </Flex>
           <Flex gap={12} wrap className="graph-controls">
             <Segmented value={viewMode} onChange={setViewMode} options={[
@@ -315,6 +335,11 @@ export function ReviewApp() {
               { label: "需求与设计", value: "all" }, { label: "需求", value: "requirement" },
               { label: "技术设计", value: "design" },
             ]} />
+            <Space.Compact>
+              <Button aria-label="缩小统一图" icon={<MinusOutlined />} onClick={() => zoomBy(0.8)} />
+              <Button aria-label="复位统一图视图" icon={<ReloadOutlined />} onClick={() => setViewport({ scale: 1, x: 0, y: 0 })} />
+              <Button aria-label="放大统一图" icon={<PlusOutlined />} onClick={() => zoomBy(1.25)} />
+            </Space.Compact>
           </Flex>
         </Header>
         <Content className="graph-content">
@@ -327,8 +352,17 @@ export function ReviewApp() {
               className={`graph-svg ${viewMode === "changes" ? "only-changes" : ""}`}
               onClick={activateNode}
               onKeyDown={activateNode}
-              dangerouslySetInnerHTML={{ __html: svg }}
-            />
+              onPointerDown={beginPan}
+              onPointerMove={movePan}
+              onPointerUp={endPan}
+              onPointerCancel={endPan}
+            >
+              <div
+                className="graph-transform"
+                style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})` }}
+                dangerouslySetInnerHTML={{ __html: svg }}
+              />
+            </div>
           ) : <Spin description="正在生成行为图…"><div className="graph-loading" /></Spin>}
         </Content>
         <Footer className="approval-bar">
@@ -344,7 +378,7 @@ export function ReviewApp() {
           </Flex>
         </Footer>
       </Layout>
-      {desktop && <Sider width={300} theme="light" className="side-panel">{inspector}</Sider>}
+      {desktop && selected && <Sider width={300} theme="light" className="side-panel">{inspector}</Sider>}
       <Drawer title="需求对话" placement="left" size="min(92vw, 420px)" open={conversationOpen} onClose={() => setConversationOpen(false)}>{conversation}</Drawer>
       <Drawer title="节点详情" placement="right" size="min(92vw, 420px)" open={inspectorOpen} onClose={() => setInspectorOpen(false)}>{inspector}</Drawer>
     </Layout>

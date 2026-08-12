@@ -17,6 +17,7 @@ from app.graph import (
 )
 
 REQUIREMENT_ID = "REQ-REVIEW-TOOL"
+REPOSITORY_ID = "REPOSITORY-LOCAL"
 
 
 class StoreError(RuntimeError):
@@ -50,6 +51,14 @@ class Store:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS repository (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    current_revision_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS message (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     requirement_id TEXT NOT NULL REFERENCES requirement(id),
@@ -61,6 +70,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS revision (
                     id TEXT PRIMARY KEY,
                     requirement_id TEXT NOT NULL REFERENCES requirement(id),
+                    repository_id TEXT NOT NULL DEFAULT 'REPOSITORY-LOCAL',
                     base_revision_id TEXT,
                     status TEXT NOT NULL,
                     content_json TEXT NOT NULL,
@@ -96,6 +106,12 @@ class Store:
                 END;
                 """
             )
+            revision_columns = {row[1] for row in connection.execute("PRAGMA table_info(revision)")}
+            if "repository_id" not in revision_columns:
+                connection.execute(
+                    "ALTER TABLE revision ADD COLUMN repository_id TEXT "
+                    f"NOT NULL DEFAULT '{REPOSITORY_ID}'"
+                )
             now = _now()
             connection.execute(
                 """
@@ -105,18 +121,29 @@ class Store:
                 """,
                 (REQUIREMENT_ID, seed["title"], revision["id"], now, now),
             )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO repository (
+                    id, title, current_revision_id, created_at, updated_at
+                )
+                SELECT ?, title, current_revision_id, ?, ?
+                FROM requirement WHERE id = ?
+                """,
+                (REPOSITORY_ID, now, now, REQUIREMENT_ID),
+            )
             for document in (*history, seed):
                 item = cast(JsonObject, document["revision"])
                 connection.execute(
                     """
                     INSERT OR IGNORE INTO revision (
-                        id, requirement_id, base_revision_id, status, content_json,
+                        id, requirement_id, repository_id, base_revision_id, status, content_json,
                         content_hash, approvable, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         item["id"],
                         REQUIREMENT_ID,
+                        REPOSITORY_ID,
                         item["baseRevisionId"],
                         item["status"],
                         canonical_json(document),
@@ -149,9 +176,14 @@ class Store:
             ).fetchone()
             if requirement is None:
                 raise StoreError("需求尚未初始化")
+            repository = connection.execute(
+                "SELECT * FROM repository WHERE id = ?", (REPOSITORY_ID,)
+            ).fetchone()
+            if repository is None:
+                raise StoreError("仓库尚未初始化")
             current = self._revision_row(
                 connection.execute(
-                    "SELECT * FROM revision WHERE id = ?", (requirement["current_revision_id"],)
+                    "SELECT * FROM revision WHERE id = ?", (repository["current_revision_id"],)
                 ).fetchone()
             )
             base = None
@@ -198,6 +230,7 @@ class Store:
                     "operationStatus": requirement["operation_status"],
                     "lastError": requirement["last_error"],
                 },
+                "repository": {"id": repository["id"], "title": repository["title"]},
                 "revision": current,
                 "baseRevision": base,
                 "messages": messages,
@@ -236,7 +269,12 @@ class Store:
             )
             current = self._revision_row(
                 connection.execute(
-                    "SELECT * FROM revision WHERE id = ?", (requirement["current_revision_id"],)
+                    """
+                    SELECT revision.* FROM revision
+                    JOIN repository ON repository.current_revision_id = revision.id
+                    WHERE repository.id = ?
+                    """,
+                    (REPOSITORY_ID,),
                 ).fetchone()
             )
             messages = [
@@ -279,13 +317,14 @@ class Store:
             connection.execute(
                 """
                 INSERT INTO revision (
-                    id, requirement_id, base_revision_id, status, content_json,
+                    id, requirement_id, repository_id, base_revision_id, status, content_json,
                     content_hash, approvable, created_at
-                ) VALUES (?, ?, ?, 'CANDIDATE', ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, 'CANDIDATE', ?, ?, ?, ?)
                 """,
                 (
                     revision["id"],
                     REQUIREMENT_ID,
+                    REPOSITORY_ID,
                     base_revision_id,
                     canonical_json(document),
                     revision["contentHash"],
@@ -308,6 +347,12 @@ class Store:
                 WHERE id = ?
                 """,
                 (revision["id"], now, REQUIREMENT_ID),
+            )
+            connection.execute(
+                """
+                UPDATE repository SET current_revision_id = ?, updated_at = ? WHERE id = ?
+                """,
+                (revision["id"], now, REPOSITORY_ID),
             )
 
     def fail_modeling(self, error: str) -> None:
@@ -338,7 +383,10 @@ class Store:
             ).fetchone()
             if requirement is None or requirement["operation_status"] != "IDLE":
                 raise StoreError("当前状态不能批准")
-            if requirement["current_revision_id"] != revision_id:
+            repository = connection.execute(
+                "SELECT current_revision_id FROM repository WHERE id = ?", (REPOSITORY_ID,)
+            ).fetchone()
+            if repository is None or repository["current_revision_id"] != revision_id:
                 raise StoreError("页面 revision 已过期，请刷新后重试")
             row = connection.execute(
                 "SELECT * FROM revision WHERE id = ?", (revision_id,)

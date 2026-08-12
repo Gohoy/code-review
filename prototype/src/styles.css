@@ -32,8 +32,10 @@ body { margin: 0; min-width: 320px; }
   border-bottom: 1px solid #e5e7eb;
 }
 .graph-controls { margin-top: 20px; }
-.graph-content { min-height: 0; padding: 16px; overflow: auto; background: #fafafa; }
-.graph-svg { width: max-content; min-width: 100%; min-height: 100%; padding: 16px; background: #fff; border: 1px solid #eee; border-radius: 8px; }
+.graph-content { min-height: 0; padding: 16px; overflow: hidden; background: #fafafa; }
+.graph-svg { width: 100%; height: 100%; min-height: 440px; overflow: hidden; touch-action: none; cursor: grab; background: #fff; border: 1px solid #eee; border-radius: 8px; }
+.graph-svg:active { cursor: grabbing; }
+.graph-transform { width: max-content; padding: 16px; transform-origin: 0 0; }
 .graph-svg svg { display: block; width: 2000px; height: auto; }
 .graph-svg g.node { cursor: pointer; transition: opacity 0.2s; }
 .graph-svg g.node:focus { outline: none; }

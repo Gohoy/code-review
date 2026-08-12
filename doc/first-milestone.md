@@ -2,7 +2,7 @@
 
 ## 1. 批准对象
 
-本设计对应已批准版本 `REV-REVIEW-TOOL-004`，唯一数据源是
+本设计对应已批准版本 `REV-REVIEW-TOOL-008`，唯一数据源是
 [`model/review-tool.json`](../model/review-tool.json)。结构定义见
 [统一交互图模型](graph-model.md)；UML 和 SVG 都只是投影视图，不是第二份事实。
 
@@ -103,10 +103,11 @@ codex exec --ephemeral --ignore-user-config --sandbox workspace-write \
 
 ## 6. 数据与事务
 
-SQLite 只需四张表：
+SQLite 只需五张表：
 
 | 表 | 保存内容 |
 | --- | --- |
+| `repository` | 目标仓库身份和当前统一图 revision |
 | `requirement` | 当前需求和业务状态 |
 | `message` | 用户与 AI 对话 |
 | `revision` | 候选或已批准的完整统一图 JSON、基础 revision、哈希、是否可批准 |
@@ -147,4 +148,4 @@ SQLite 只需四张表：
 - `SCN-DEV-FAIL-001`：CLI、Schema、超时和 Git 失败均可见且不伪装成功。
 - `SCN-DEV-QUESTION-001`：开发中新问题返回需求对话并要求重新批准。
 
-测试名称必须包含相应场景 ID。浏览器验收必须验证对话与图同时可见、层级切换、节点展开与详情联动、批准按钮门禁和运行状态更新。
+测试名称必须包含相应场景 ID。浏览器验收必须验证统一图占满主页面、对话默认折叠、缩放和平移、节点选择与详情联动、批准按钮门禁和运行状态更新。
