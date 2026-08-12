@@ -1530,7 +1530,8 @@
       },
       {
         "details": {
-          "graphScope": "每个仓库维护一条统一图 revision 链"
+          "graphScope": "每个仓库维护一条统一图 revision 链",
+          "startupRule": "内置模型 revision 是当前 revision 的后代时，启动后沿同一 revision 链前进到内置模型；存在分叉时保留当前 revision"
         },
         "id": "DESIGN-ENTITY-REPOSITORY",
         "kind": "DataEntity",
@@ -1654,7 +1655,7 @@
   "revision": {
     "approvable": true,
     "baseRevisionId": "REV-REVIEW-TOOL-009",
-    "contentHash": "113b36c3cb2b5d6cb2ba39db7a7c56e51d3e77856bdedf968da5d5986d31414e",
+    "contentHash": "795806d410a6eead0124211153367a8cf264fd84687ed4a5b664434b36efe3f2",
     "id": "REV-REVIEW-TOOL-010",
     "status": "CANDIDATE"
   },

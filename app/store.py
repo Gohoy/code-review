@@ -168,6 +168,35 @@ class Store:
                 """,
                 (now,),
             )
+            current = connection.execute(
+                "SELECT current_revision_id FROM repository WHERE id = ?", (REPOSITORY_ID,)
+            ).fetchone()
+            current_id = str(current["current_revision_id"]) if current else ""
+            ancestor_id: str | None = str(revision["id"])
+            visited: set[str] = set()
+            while ancestor_id and ancestor_id not in visited:
+                if ancestor_id == current_id:
+                    status = "REVIEWING" if revision["status"] == "CANDIDATE" else "READY"
+                    connection.execute(
+                        """
+                        UPDATE repository SET current_revision_id = ?, updated_at = ? WHERE id = ?
+                        """,
+                        (revision["id"], now, REPOSITORY_ID),
+                    )
+                    connection.execute(
+                        """
+                        UPDATE requirement
+                        SET current_revision_id = ?, status = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (revision["id"], status, now, REQUIREMENT_ID),
+                    )
+                    break
+                visited.add(ancestor_id)
+                parent = connection.execute(
+                    "SELECT base_revision_id FROM revision WHERE id = ?", (ancestor_id,)
+                ).fetchone()
+                ancestor_id = str(parent["base_revision_id"]) if parent and parent[0] else None
 
     def state(self) -> JsonObject:
         with self._connect() as connection:

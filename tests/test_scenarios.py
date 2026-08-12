@@ -394,6 +394,17 @@ def test_仓库拥有统一图revision链(tmp_path: Path, scenario_id: str) -> N
     run(scenario())
 
 
+@pytest.mark.parametrize("scenario_id", ["SCN-GRAPH-LIVE-001"], ids=lambda value: value)
+def test_启动时沿同一revision链加载内置候选(tmp_path: Path, scenario_id: str) -> None:
+    store = Store(tmp_path / "review.sqlite3", schema())
+    approved = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-008.json")
+    base = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-009.json")
+    store.initialize(approved)
+    store.initialize(seed(), (base,))
+    assert store.state()["revision"]["revision"]["id"] == "REV-REVIEW-TOOL-010"
+    assert scenario_id.startswith("SCN-")
+
+
 @pytest.mark.parametrize("scenario_id", ["SCN-CODE-AUTHORITY-001"], ids=lambda value: value)
 def test_图代码契约拒绝无快照或锚点的实现事实(tmp_path: Path, scenario_id: str) -> None:
     del tmp_path
