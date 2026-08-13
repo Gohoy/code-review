@@ -353,7 +353,7 @@ class Runner:
                 "-c",
                 f"mcp_servers.sdbp_review.cwd={json.dumps(str(ROOT))}",
                 "-c",
-                'mcp_servers.sdbp_review.default_tools_approval_mode="never"',
+                'mcp_servers.sdbp_review.default_tools_approval_mode="approve"',
                 "--skip-git-repo-check",
                 "--sandbox",
                 sandbox,
