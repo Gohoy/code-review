@@ -12,6 +12,7 @@
 
 当前模型位于 [`model/review-tool.json`](../model/review-tool.json)，结构由
 [`model/graph.schema.json`](../model/graph.schema.json) 约束。第一版使用 JSON revision 和 SQLite，不引入图数据库。
+图与 Git commit、源码位置及扫描结果之间的权威边界见[图与代码权威契约](graph-code-contract.md)。
 
 ## 2. 四个层级
 
@@ -46,6 +47,7 @@
 - `title`、`summary`：画布上直接使用自然语言展示。
 - `source`：`DECLARED`、`DERIVED`、`OBSERVED`、`INFERRED` 或 `UNRESOLVED`。
 - `details`：点击节点后展示的完整场景、接口、命令、数据、源码位置或测试证据。
+- `snapshotId`、`anchors`：实现层事实所属的固定代码快照及源码锚点；其他层不得伪造代码位置。
 
 同一节点不能同时代表需求和技术实现。跨层语义通过关系表达，避免一个大节点混合多种可信度和生命周期。
 
@@ -70,6 +72,8 @@
 - 技术关系：`exposes`、`calls`、`reads`、`writes`、`invokes`、`creates`、`renders`、`configured_by`、`constrains`。
 
 每条关系的两个端点必须存在。关系类型和两端层级必须通过语义校验；例如 `implemented_by` 不能把代码节点指回需求节点。
+
+实现层的静态技术关系还必须引用 `CodeSnapshot` 和表达式 `CodeAnchor`。这使用户不仅能点击函数节点定位声明，也能点击 `calls`、`reads`、`writes` 或 `invokes` 关系定位实际调用点。代码快照、源码锚点和关系门禁以[图与代码权威契约](graph-code-contract.md)为准。
 
 ## 5. 同一画布上的交互
 
@@ -127,15 +131,16 @@ Diff 直接比较两个完整图快照：
 
 层级开关不会隐藏 Diff 的存在：折叠层有变化时显示数量，展开后在同一画布显示对应变化。布局变化永远不算 Diff。
 
-## 9. 当前批准版本
+## 9. 当前候选版本
 
-`REV-REVIEW-TOOL-008` 当前包含：
+`REV-REVIEW-TOOL-010` 当前包含：
 
-- 需求层：23 个节点。
-- 技术设计层：26 个节点。
+- 需求层：24 个节点。
+- 技术设计层：31 个节点。
 - 代码实现层：0 个节点，因为尚未开始开发。
 - 测试证据层：0 个节点，因为尚未执行实现验收。
-- 关系：92 条。
+- 关系：102 条。
+- 代码快照：0 个，因为本 revision 只冻结契约，尚未执行扫描。
 - 未解决问题：0 个。
 
-这使“当前还没有代码”成为图上的明确事实，而不是由计划节点假装已经实现。
+该候选只冻结图与代码关系的结构和门禁，不用设计节点假装扫描器已经实现。

@@ -3,14 +3,23 @@ from __future__ import annotations
 import asyncio
 import copy
 import sqlite3
+import subprocess
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-from app.config import ROOT
-from app.graph import JsonObject, changed_ids, load_object, to_dot
+from app.config import ROOT, Settings
+from app.graph import (
+    GraphError,
+    JsonObject,
+    changed_ids,
+    graph_hash,
+    load_object,
+    to_dot,
+    validate_document,
+)
 from app.runner import Runner, RunnerError
 from app.service import ReviewService
 from app.store import REPOSITORY_ID, Store, StoreError
@@ -22,12 +31,16 @@ class FakeRunner:
         diff: Callable[[JsonObject], JsonObject] | None = None,
         result: JsonObject | None = None,
         error: Exception | None = None,
+        verification_error: Exception | None = None,
     ) -> None:
         self.diff = diff or valid_diff
         self.result = result or {"status": "COMPLETED", "summary": "开发完成", "question": ""}
         self.error = error
+        self.verification_error = verification_error
         self.worktree: Path | None = None
         self.implemented_hash: str | None = None
+        self.verified = False
+        self.merged = False
 
     async def dependency_status(self) -> JsonObject:
         return {"codex": "可用", "git": "可用", "dot": "可用"}
@@ -45,6 +58,16 @@ class FakeRunner:
         revision = cast(JsonObject, document["revision"])
         self.implemented_hash = str(revision["contentHash"])
         return self.result
+
+    async def verify(self, _: Path) -> str:
+        self.verified = True
+        if self.verification_error:
+            raise self.verification_error
+        return "固定验证全部通过"
+
+    async def merge(self, _: Path, __: str) -> str:
+        self.merged = True
+        return "已自动合并到本地分支"
 
     async def render(self, dot_source: str) -> str:
         return f"<svg>{dot_source}</svg>"
@@ -107,9 +130,11 @@ def unresolved_diff(document: JsonObject) -> JsonObject:
 
 
 def make_service(tmp_path: Path, runner: FakeRunner) -> ReviewService:
+    document = seed()
+    revision = cast(JsonObject, document["revision"])
     store = Store(tmp_path / "review.sqlite3", schema())
-    history = (load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-007.json"),)
-    return ReviewService(store, cast(Runner, runner), seed(), history)
+    history = (load_object(ROOT / "model" / "revision" / f"{revision['baseRevisionId']}.json"),)
+    return ReviewService(store, cast(Runner, runner), document, history)
 
 
 async def settle(service: ReviewService) -> None:
@@ -137,9 +162,9 @@ def test_对话生成不可变候选revision(tmp_path: Path, scenario_id: str) -
         assert modeling["requirement"]["operationStatus"] == "MODELING"
         await settle(service)
         after = await service.state()
-        assert before["revision"]["revision"]["id"] == "REV-REVIEW-TOOL-008"
-        assert after["revision"]["revision"]["id"] == "REV-REVIEW-TOOL-009"
-        assert after["revision"]["revision"]["baseRevisionId"] == "REV-REVIEW-TOOL-008"
+        before_id = before["revision"]["revision"]["id"]
+        assert after["revision"]["revision"]["id"] != before_id
+        assert after["revision"]["revision"]["baseRevisionId"] == before_id
         assert after["changedNodeIds"] == ["ACTION-SUBMIT-REQUIREMENT"]
         assert scenario_id.startswith("SCN-")
 
@@ -191,8 +216,11 @@ def test_明确批准后才按同一哈希开发(tmp_path: Path, scenario_id: st
         completed = await service.state()
         assert completed["implementationRun"]["id"] == run_id
         assert completed["implementationRun"]["status"] == "COMPLETED"
+        assert "固定验证全部通过" in completed["implementationRun"]["summary"]
         assert runner.worktree is not None
         assert runner.implemented_hash == revision["contentHash"]
+        assert runner.verified
+        assert runner.merged
         with (
             sqlite3.connect(tmp_path / "review.sqlite3") as connection,
             pytest.raises(sqlite3.IntegrityError),
@@ -205,15 +233,91 @@ def test_明确批准后才按同一哈希开发(tmp_path: Path, scenario_id: st
     run(scenario())
 
 
+@pytest.mark.parametrize("scenario_id", ["SCN-LOCAL-AUTO-DELIVERY-001"], ids=lambda value: value)
+def test_本地验证通过后才自动合并(tmp_path: Path, scenario_id: str) -> None:
+    async def scenario() -> None:
+        runner = FakeRunner(verification_error=RunnerError("固定验证失败"))
+        service = make_service(tmp_path, runner)
+        await service.initialize()
+        await service.submit_message("补充本地自动交付场景。")
+        await settle(service)
+        state = await service.state()
+        revision = state["revision"]["revision"]
+        await service.approve_and_start(revision["id"], revision["contentHash"])
+        await settle(service)
+        failed = await service.state()
+        assert failed["implementationRun"]["status"] == "FAILED"
+        assert "固定验证失败" in failed["implementationRun"]["summary"]
+        assert runner.verified
+        assert not runner.merged
+        assert scenario_id.startswith("SCN-")
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("scenario_id", ["SCN-LOCAL-AUTO-DELIVERY-001"], ids=lambda value: value)
+def test_本地自动合并只接受干净原基线(tmp_path: Path, scenario_id: str) -> None:
+    repository = tmp_path / "repository"
+
+    def git(*arguments: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repository), *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    repository.mkdir()
+    git("init", "--initial-branch=main")
+    git("config", "user.name", "测试用户")
+    git("config", "user.email", "test@example.invalid")
+    (repository / "功能.txt").write_text("旧实现\n", encoding="utf-8")
+    git("add", "功能.txt")
+    git("commit", "-m", "chore: 初始化测试仓库")
+    worktree = tmp_path / "worktree"
+    git("worktree", "add", "--detach", str(worktree), "HEAD")
+    (worktree / "功能.txt").write_text("新实现\n", encoding="utf-8")
+    settings = Settings(
+        host="127.0.0.1",
+        port=0,
+        data_dir=tmp_path / "data",
+        repository=repository,
+        worktree_root=tmp_path / "managed-worktree",
+        web_dir=ROOT / "prototype" / "dist" / "client",
+        model_path=ROOT / "model" / "review-tool.json",
+        revision_dir=ROOT / "model" / "revision",
+        graph_schema_path=ROOT / "model" / "graph.schema.json",
+        model_diff_schema_path=ROOT / "app" / "schema" / "model-diff.schema.json",
+        implementation_schema_path=ROOT / "app" / "schema" / "implementation-result.schema.json",
+    )
+    runner = Runner(settings)
+
+    async def scenario() -> None:
+        result = await runner.merge(worktree, "REV-TEST-001")
+        assert "main" in result
+        assert (repository / "功能.txt").read_text(encoding="utf-8") == "新实现\n"
+
+        dirty_worktree = tmp_path / "dirty-worktree"
+        git("worktree", "add", "--detach", str(dirty_worktree), "HEAD")
+        (dirty_worktree / "功能.txt").write_text("下一版\n", encoding="utf-8")
+        (repository / "功能.txt").write_text("本地未提交变化\n", encoding="utf-8")
+        with pytest.raises(RunnerError, match="未提交变化"):
+            await runner.merge(dirty_worktree, "REV-TEST-002")
+        assert scenario_id.startswith("SCN-")
+
+    run(scenario())
+
+
 @pytest.mark.parametrize("scenario_id", ["SCN-DEV-FAIL-001"], ids=lambda value: value)
 def test_Codex失败不覆盖有效revision(tmp_path: Path, scenario_id: str) -> None:
     async def scenario() -> None:
         service = make_service(tmp_path, FakeRunner(error=RunnerError("Codex 输出无效")))
         await service.initialize()
+        before = await service.state()
         await service.submit_message("这次输出会失败。")
         await settle(service)
         state = await service.state()
-        assert state["revision"]["revision"]["id"] == "REV-REVIEW-TOOL-008"
+        assert state["revision"]["revision"]["id"] == before["revision"]["revision"]["id"]
         assert state["requirement"]["status"] == "ERROR"
         assert "Codex 输出无效" in state["messages"][-1]["content"]
         assert scenario_id.startswith("SCN-")
@@ -250,7 +354,8 @@ def test_开发中新决策返回对话(tmp_path: Path, scenario_id: str) -> Non
 def test_统一画布投影稳定节点ID和分层(tmp_path: Path, scenario_id: str) -> None:
     del tmp_path
     document = seed()
-    base = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-007.json")
+    revision = cast(JsonObject, document["revision"])
+    base = load_object(ROOT / "model" / "revision" / f"{revision['baseRevisionId']}.json")
     node_ids, edge_ids = changed_ids(base, document)
     source = to_dot(
         document,
@@ -287,3 +392,156 @@ def test_仓库拥有统一图revision链(tmp_path: Path, scenario_id: str) -> N
         assert scenario_id.startswith("SCN-")
 
     run(scenario())
+
+
+@pytest.mark.parametrize("scenario_id", ["SCN-GRAPH-LIVE-001"], ids=lambda value: value)
+def test_启动时沿同一revision链加载内置候选(tmp_path: Path, scenario_id: str) -> None:
+    store = Store(tmp_path / "review.sqlite3", schema())
+    approved = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-008.json")
+    base = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-009.json")
+    stale = copy.deepcopy(seed())
+    stale_graph = cast(JsonObject, stale["graph"])
+    stale_nodes = cast(list[JsonObject], stale_graph["nodes"])
+    stale_nodes[0]["summary"] = "过期候选内容"
+    cast(JsonObject, stale["revision"])["contentHash"] = graph_hash(stale_graph)
+    store.initialize(approved)
+    store.initialize(stale, (base,))
+    store.initialize(seed(), (base,))
+    current = store.state()["revision"]["revision"]
+    assert current["id"] == "REV-REVIEW-TOOL-010"
+    assert current["contentHash"] == seed()["revision"]["contentHash"]
+    assert scenario_id.startswith("SCN-")
+
+
+@pytest.mark.parametrize("scenario_id", ["SCN-CODE-AUTHORITY-001"], ids=lambda value: value)
+def test_图代码契约拒绝无快照或锚点的实现事实(tmp_path: Path, scenario_id: str) -> None:
+    del tmp_path
+    document = copy.deepcopy(seed())
+    graph = cast(JsonObject, document["graph"])
+    nodes = cast(list[JsonObject], graph["nodes"])
+    edges = cast(list[JsonObject], graph["edges"])
+    snapshot_id = "SNAPSHOT-REPOSITORY-LOCAL-A1B2C3D4"
+    anchor: JsonObject = {
+        "snapshotId": snapshot_id,
+        "path": "app/service.py",
+        "range": {
+            "start": {"line": 10, "column": 1},
+            "end": {"line": 12, "column": 20},
+        },
+        "extractorId": "PYTHON-AST",
+        "fingerprint": "a" * 64,
+    }
+    graph["codeSnapshots"] = [
+        {
+            "id": snapshot_id,
+            "repositoryId": "REPOSITORY-LOCAL",
+            "commitSha": "1" * 40,
+            "treeHash": "2" * 40,
+            "scanHash": "3" * 64,
+            "roots": ["app"],
+            "extractors": [{"id": "PYTHON-AST", "version": "1.0.0"}],
+        }
+    ]
+    nodes.extend(
+        [
+            {
+                "id": "IMPL-REPOSITORY-LOCAL",
+                "layer": "implementation",
+                "kind": "Repository",
+                "title": "本地仓库",
+                "summary": "固定代码快照所属仓库。",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "details": {},
+            },
+            {
+                "id": "IMPL-SYMBOL-APPROVE",
+                "layer": "implementation",
+                "kind": "Symbol",
+                "title": "批准实现",
+                "summary": "处理批准操作。",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "anchors": [anchor],
+                "details": {"qualifiedName": "ReviewService.approve"},
+            },
+            {
+                "id": "IMPL-SYMBOL-STORE-APPROVE",
+                "layer": "implementation",
+                "kind": "Symbol",
+                "title": "保存批准结果",
+                "summary": "保存批准 revision。",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "anchors": [anchor],
+                "details": {"qualifiedName": "Store.approve"},
+            },
+        ]
+    )
+    edges.extend(
+        [
+            {
+                "id": "EDGE-IMPL-REPOSITORY-CONTAINS-APPROVE",
+                "sourceId": "IMPL-REPOSITORY-LOCAL",
+                "targetId": "IMPL-SYMBOL-APPROVE",
+                "kind": "contains",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+            },
+            {
+                "id": "EDGE-IMPL-APPROVE-CALLS-STORE",
+                "sourceId": "IMPL-SYMBOL-APPROVE",
+                "targetId": "IMPL-SYMBOL-STORE-APPROVE",
+                "kind": "calls",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "anchors": [anchor],
+            },
+            {
+                "id": "EDGE-DESIGN-VALIDATOR-IMPLEMENTED-BY-APPROVE",
+                "sourceId": "DESIGN-COMPONENT-GRAPH-VALIDATOR",
+                "targetId": "IMPL-SYMBOL-APPROVE",
+                "kind": "implemented_by",
+                "source": "INFERRED",
+            },
+        ]
+    )
+
+    def refresh_hash(value: JsonObject) -> None:
+        revision = cast(JsonObject, value["revision"])
+        revision["contentHash"] = graph_hash(cast(JsonObject, value["graph"]))
+
+    refresh_hash(document)
+    validate_document(document, schema())
+
+    without_node_anchor = copy.deepcopy(document)
+    bad_nodes = cast(list[JsonObject], cast(JsonObject, without_node_anchor["graph"])["nodes"])
+    next(node for node in bad_nodes if node["id"] == "IMPL-SYMBOL-APPROVE").pop("anchors")
+    refresh_hash(without_node_anchor)
+    with pytest.raises(GraphError, match="静态实现节点缺少源码锚点"):
+        validate_document(without_node_anchor, schema())
+
+    without_edge_anchor = copy.deepcopy(document)
+    bad_edges = cast(list[JsonObject], cast(JsonObject, without_edge_anchor["graph"])["edges"])
+    next(edge for edge in bad_edges if edge["id"] == "EDGE-IMPL-APPROVE-CALLS-STORE").pop("anchors")
+    refresh_hash(without_edge_anchor)
+    with pytest.raises(GraphError, match="静态实现关系缺少源码锚点"):
+        validate_document(without_edge_anchor, schema())
+
+    unknown_snapshot = copy.deepcopy(document)
+    unknown_nodes = cast(list[JsonObject], cast(JsonObject, unknown_snapshot["graph"])["nodes"])
+    unknown_nodes[-1]["snapshotId"] = "SNAPSHOT-UNKNOWN-CODE"
+    refresh_hash(unknown_snapshot)
+    with pytest.raises(GraphError, match="引用了不存在的代码快照"):
+        validate_document(unknown_snapshot, schema())
+
+    reversed_trace = copy.deepcopy(document)
+    trace_edges = cast(list[JsonObject], cast(JsonObject, reversed_trace["graph"])["edges"])
+    trace = next(
+        edge for edge in trace_edges if edge["id"] == "EDGE-DESIGN-VALIDATOR-IMPLEMENTED-BY-APPROVE"
+    )
+    trace["sourceId"], trace["targetId"] = trace["targetId"], trace["sourceId"]
+    refresh_hash(reversed_trace)
+    with pytest.raises(GraphError, match="跨层追踪方向无效"):
+        validate_document(reversed_trace, schema())
+    assert scenario_id.startswith("SCN-")

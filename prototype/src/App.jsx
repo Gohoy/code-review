@@ -37,6 +37,15 @@ const layerTitles = {
   implementation: "代码实现",
   verification: "测试证据",
 };
+const runStatusTitles = {
+  PENDING: "等待开发",
+  RUNNING: "正在开发",
+  VERIFYING: "正在验证",
+  MERGING: "正在合并",
+  COMPLETED: "已完成",
+  NEEDS_INPUT: "需要补充信息",
+  FAILED: "失败",
+};
 
 async function request(url, options) {
   const response = await fetch(url, options);
@@ -271,10 +280,10 @@ export function ReviewApp() {
 
   function approve() {
     modal.confirm({
-      title: "批准当前需求与技术设计？",
+      title: "批准并自动交付当前需求？",
       icon: <InfoCircleOutlined />,
-      content: `将冻结 ${revision.id}，随后在隔离 Git worktree 中启动本机 Codex。`,
-      okText: "确认批准并开始开发",
+      content: `将冻结 ${revision.id}，随后自动开发、验证并安全合并当前本地分支。`,
+      okText: "确认批准并自动交付",
       cancelText: "取消",
       async onOk() {
         try {
@@ -283,7 +292,7 @@ export function ReviewApp() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ contentHash: revision.contentHash }),
           });
-          toast.success("已批准，正在创建隔离 worktree");
+          toast.success("已批准，正在自动开发和交付");
           await refresh();
         } catch (error) {
           toast.error(error.message);
@@ -369,11 +378,11 @@ export function ReviewApp() {
           <Flex justify="space-between" align="center" gap={16} wrap>
             <Space orientation="vertical" size={2}>
               <Text>层级计数：需求 {state.layerCounts.requirement} · 技术设计 {state.layerCounts.design} · 代码实现 {state.layerCounts.implementation} · 测试证据 {state.layerCounts.verification}</Text>
-              {state.implementationRun && <Text type="secondary">开发运行 {state.implementationRun.status}：{state.implementationRun.summary || "等待执行"}</Text>}
+              {state.implementationRun && <Text type="secondary" aria-live="polite">自动交付 {runStatusTitles[state.implementationRun.status] || state.implementationRun.status}：{state.implementationRun.summary || "等待执行"}</Text>}
             </Space>
             <Space wrap>
               <Button type="text" onClick={discuss}>继续讨论</Button>
-              <Button type="primary" size="large" disabled={!canApprove} onClick={approve}>批准并开始开发</Button>
+              <Button type="primary" size="large" disabled={!canApprove} onClick={approve}>批准并自动交付</Button>
             </Space>
           </Flex>
         </Footer>

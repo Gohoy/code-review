@@ -14,12 +14,13 @@ ModelReview --> Approved : 需求方批准
 Approved --> Implementing : 创建隔离 worktree
 Implementing --> Verifying : 实现声称完成
 Implementing --> Modeling : 发现模型冲突
-Verifying --> Implementing : 实现或测试失败
+Verifying --> Failed : 实现或测试失败
 Verifying --> Modeling : 发现需求缺失
-Verifying --> MergeRequestOpen : 全部门禁通过
-MergeRequestOpen --> Verifying : MR 新提交使证据失效
-MergeRequestOpen --> Closed : MR 合并或关闭
-Closed --> [*]
+Verifying --> Merging : 全部门禁通过
+Merging --> Failed : 主工作区变化或基线漂移
+Merging --> Completed : fast-forward 合并或无需变化
+Failed --> [*]
+Completed --> [*]
 
 state Approved
 note right of Approved

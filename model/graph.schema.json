@@ -5,9 +5,27 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "modelId", "title", "revision", "graph"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": 2
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "graph": {
+            "required": ["codeSnapshots"]
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "schemaVersion": {
-      "const": 1
+      "enum": [1, 2]
     },
     "modelId": {
       "$ref": "#/$defs/stableId"
@@ -36,6 +54,119 @@
     },
     "layerId": {
       "enum": ["requirement", "design", "implementation", "verification"]
+    },
+    "sourcePosition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line", "column"],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "sourceRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/sourcePosition"
+        },
+        "end": {
+          "$ref": "#/$defs/sourcePosition"
+        }
+      }
+    },
+    "extractor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "version": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "codeAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshotId", "path", "range", "extractorId", "fingerprint"],
+      "properties": {
+        "snapshotId": {
+          "$ref": "#/$defs/stableId"
+        },
+        "path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "range": {
+          "$ref": "#/$defs/sourceRange"
+        },
+        "extractorId": {
+          "$ref": "#/$defs/stableId"
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "codeSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "repositoryId",
+        "commitSha",
+        "treeHash",
+        "scanHash",
+        "roots",
+        "extractors"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "repositoryId": {
+          "$ref": "#/$defs/stableId"
+        },
+        "commitSha": {
+          "type": "string",
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+        },
+        "treeHash": {
+          "type": "string",
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+        },
+        "scanHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "roots": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "extractors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/extractor"
+          }
+        }
+      }
     },
     "revision": {
       "type": "object",
@@ -135,6 +266,17 @@
         },
         "details": {
           "type": "object"
+        },
+        "snapshotId": {
+          "$ref": "#/$defs/stableId"
+        },
+        "anchors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/codeAnchor"
+          }
         }
       }
     },
@@ -183,6 +325,17 @@
         },
         "source": {
           "$ref": "#/$defs/source"
+        },
+        "snapshotId": {
+          "$ref": "#/$defs/stableId"
+        },
+        "anchors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/codeAnchor"
+          }
         }
       }
     },
@@ -205,6 +358,13 @@
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/stableId"
+          }
+        },
+        "codeSnapshots": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/codeSnapshot"
           }
         },
         "nodes": {

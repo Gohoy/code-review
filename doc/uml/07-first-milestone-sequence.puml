@@ -39,7 +39,7 @@ loop 用户要求修改
   App --> Browser : 在同一画布展示多层语义差异
 end
 
-User -> Browser : 点击“批准并开始开发”
+User -> Browser : 点击“批准并自动交付”
 Browser -> App : POST /api/revision/{id}/approve-and-start\n携带页面所见内容哈希
 App -> Db : 事务：重读候选、比对哈希、检查问题、\n冻结 revision、插入等待运行
 
@@ -54,8 +54,15 @@ else 批准成功
   App -> Codex : exec + workspace-write + 固定 Schema\n输入批准图 JSON 原文和哈希
   Codex -> Worktree : 实现批准需求
   Codex --> App : 完成 / 需要补充信息 / 失败
+  App -> Worktree : 固定 uv 与 npm 命令验证
+  alt 验证失败或主工作区状态漂移
+    App -> Db : 保存失败状态，不提交、不合并
+  else 验证通过
+    App -> Git : 提交 worktree 变化并 fast-forward 合并
+    Git --> App : 合并提交或无需变化
+  end
   App -> Db : 保存最终状态、worktree 和结果摘要
   Browser -> App : GET /api/state（短轮询）
-  App --> Browser : 返回最新开发状态
+  App --> Browser : 返回最新自动交付状态
 end
 @enduml

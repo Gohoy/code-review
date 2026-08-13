@@ -103,7 +103,28 @@ class ReviewService:
             worktree = await self.runner.create_worktree(run_id)
             await asyncio.to_thread(self.store.start_run, run_id, worktree)
             result = await self.runner.implement(document, worktree)
-            await asyncio.to_thread(self.store.finish_run, run_id, result)
+            if result.get("status") != "COMPLETED":
+                await asyncio.to_thread(self.store.finish_run, run_id, result)
+                return
+            implementation_summary = str(result["summary"])
+            await asyncio.to_thread(
+                self.store.update_run_progress, run_id, "VERIFYING", implementation_summary
+            )
+            verification_summary = await self.runner.verify(worktree)
+            await asyncio.to_thread(
+                self.store.update_run_progress, run_id, "MERGING", verification_summary
+            )
+            revision = cast(JsonObject, document["revision"])
+            merge_summary = await self.runner.merge(worktree, str(revision["id"]))
+            await asyncio.to_thread(
+                self.store.finish_run,
+                run_id,
+                {
+                    "status": "COMPLETED",
+                    "summary": f"{implementation_summary}；{verification_summary}；{merge_summary}",
+                    "question": "",
+                },
+            )
         except Exception as error:
             logger.exception("隔离开发失败")
             await asyncio.to_thread(self.store.fail_run, run_id, str(error))
