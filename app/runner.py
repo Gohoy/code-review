@@ -352,6 +352,8 @@ class Runner:
                 'mcp_servers.sdbp_review.args=["-m","app.mcp_server"]',
                 "-c",
                 f"mcp_servers.sdbp_review.cwd={json.dumps(str(ROOT))}",
+                "-c",
+                'mcp_servers.sdbp_review.default_tools_approval_mode="never"',
                 "--skip-git-repo-check",
                 "--sandbox",
                 sandbox,
