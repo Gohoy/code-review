@@ -808,6 +808,30 @@ def test_SCN_REPOSITORY_BASELINE_001_确定性同步函数调用和覆盖证据(
     assert sum(edge["kind"] == "verified_by" for edge in edges) == 2
 
 
+def test_SCN_REPOSITORY_BASELINE_001_刷新保留稳定函数语义映射(tmp_path: Path) -> None:
+    (tmp_path / "service.py").write_text("def run():\n    return 1\n", encoding="utf-8")
+    current = seed()
+    graph = cast(JsonObject, current["graph"])
+    first = index_repository(tmp_path, ["service.py"], "1" * 40, "2" * 40, graph)
+    function_id = first["functions"][0]["id"]
+    mapping_id = "EDGE-DESIGN-RUN-IMPLEMENTED"
+    cast(list[JsonObject], graph["edges"]).append(
+        {
+            "id": mapping_id,
+            "sourceId": "DESIGN-COMPONENT-CODE-SCANNER",
+            "targetId": function_id,
+            "kind": "implemented_by",
+            "source": "INFERRED",
+        }
+    )
+
+    refreshed = index_repository(tmp_path, ["service.py"], "3" * 40, "4" * 40, graph)
+    base = with_code_snapshot(current, cast(JsonObject, refreshed["snapshot"]))
+    diff = code_index_diff(base, refreshed)
+
+    assert mapping_id not in diff["deleteEdgeIds"]
+
+
 @pytest.mark.parametrize("scenario_id", ["SCN-CODE-AUTHORITY-001"], ids=lambda value: value)
 def test_图代码契约拒绝无快照或锚点的实现事实(tmp_path: Path, scenario_id: str) -> None:
     del tmp_path

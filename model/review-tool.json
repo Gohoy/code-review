@@ -2429,6 +2429,7 @@
           "then": [
             "系统创建固定 CodeSnapshot 并确定性写入每一个扫描到的函数节点",
             "系统写入能够唯一解析的函数调用关系并显式汇报未解析调用",
+            "刷新时保留仍指向现存稳定函数 ID 的已确认语义映射",
             "Agent 只为函数与需求或技术设计补充 INFERRED 关系",
             "结果作为候选 revision 等待用户批准"
           ],
@@ -2499,7 +2500,7 @@
   "revision": {
     "approvable": true,
     "baseRevisionId": "REV-REVIEW-TOOL-012",
-    "contentHash": "030c8a8f761566e965af7548eee3ecd7f0bbf08aec9247b59db5aa8968f6649a",
+    "contentHash": "49337f073aad3a118b26922164ebabe31e5aba05702693433b2c40f0addbe116",
     "id": "REV-REVIEW-TOOL-013",
     "status": "CANDIDATE"
   },

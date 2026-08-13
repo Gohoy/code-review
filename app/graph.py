@@ -205,10 +205,17 @@ def code_index_diff(current: JsonObject, index: JsonObject) -> JsonObject:
         and _string(node.get("id"), "node.id").startswith("EVIDENCE-COVERAGE-")
     }
     replaced_node_ids = previous_implementation_ids | previous_coverage_ids
+    current_function_ids = {_string(function.get("id"), "function.id") for function in functions}
+    retained_mapping_ids = {
+        _string(edge.get("id"), "edge.id")
+        for edge in _objects(graph, "edges")
+        if edge.get("kind") == "implemented_by" and edge.get("targetId") in current_function_ids
+    }
     delete_edge_ids = [
         _string(edge.get("id"), "edge.id")
         for edge in _objects(graph, "edges")
         if edge.get("sourceId") in replaced_node_ids or edge.get("targetId") in replaced_node_ids
+        if edge.get("id") not in retained_mapping_ids
     ]
     repository_node_id = "IMPL-REPOSITORY-LOCAL"
     module_ids: dict[str, str] = {}
