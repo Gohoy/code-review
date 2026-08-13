@@ -352,15 +352,17 @@ export function ReviewApp() {
     const svgElement = container?.querySelector(".graph-transform > div > svg");
     const api = transformRef.current;
     if (!container || !svgElement || !api) return;
-    const bounds = svgElement.getBBox();
+    // 旧实现调用 svgElement.getBBox()，其 viewBox 坐标与 CSS 呈现尺寸不一致。
+    const svgWidth = Math.max(svgElement.clientWidth, 1);
+    const svgHeight = Math.max(svgElement.clientHeight, 1);
     const padding = 32;
     const scale = Math.min(
-      (container.clientWidth - padding * 2) / Math.max(bounds.width, 1),
-      (container.clientHeight - padding * 2) / Math.max(bounds.height, 1),
-      1,
+      Math.max(container.clientWidth - padding * 2, 1) / svgWidth,
+      Math.max(container.clientHeight - padding * 2, 1) / svgHeight,
+      3,
     );
-    const x = (container.clientWidth - bounds.width * scale) / 2 - bounds.x * scale;
-    const y = (container.clientHeight - bounds.height * scale) / 2 - bounds.y * scale;
+    const x = (container.clientWidth - svgWidth * scale) / 2;
+    const y = (container.clientHeight - svgHeight * scale) / 2;
     api.setTransform(x, y, scale, 200, "easeOut");
   }, []);
 
@@ -370,7 +372,7 @@ export function ReviewApp() {
     const observer = new ResizeObserver(fitView);
     if (graphRef.current) observer.observe(graphRef.current);
     return () => { cancelAnimationFrame(frame); observer.disconnect(); };
-  }, [svg, layer, fitView]);
+  }, [svg, layer, selectedId, fitView]);
 
   useEffect(() => {
     if (selectedId && !nodes.some((node) => node.id === selectedId)) setSelectedId(null);

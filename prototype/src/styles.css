@@ -38,7 +38,7 @@ body { margin: 0; min-width: 320px; }
 .graph-svg:active { cursor: grabbing; }
 .graph-viewport { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; }
 .graph-transform { width: max-content !important; }
-.graph-transform svg { display: block; width: 1450px; height: auto; }
+.graph-transform svg { display: block; }
 .graph-svg g.node { cursor: pointer; transition: opacity 0.2s; }
 .graph-svg g.node:focus { outline: none; }
 .graph-svg g.node:focus polygon, .graph-svg g.node:focus path { stroke-width: 3px; }
@@ -70,13 +70,8 @@ body { margin: 0; min-width: 320px; }
   .ant-drawer-body .panel { padding: 0; }
 }
 
-@media (max-width: 1599px) {
-  .graph-transform svg { width: 1300px; }
-}
-
 @media (max-width: 600px) {
   .workspace-header { min-height: 150px; padding: 12px; }
-  .graph-transform svg { width: auto; max-width: none; }
   .approval-bar { max-height: 42dvh; padding: 6px 10px; overflow: auto; }
   .approval-bar .ant-btn-lg { width: auto; }
   .mobile-summary-hidden { display: none; }
