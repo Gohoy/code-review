@@ -230,7 +230,58 @@ class Runner:
         target = (worktree / relative_repository).resolve()
         if not target.is_dir():
             raise RunnerError("worktree 中不存在目标仓库目录")
+        for relative_dependency in (Path(".venv"), Path("prototype/node_modules")):
+            source_dependency = repository / relative_dependency
+            target_dependency = target / relative_dependency
+            if not source_dependency.is_dir() or target_dependency.exists():
+                continue
+            try:
+                await self._run(
+                    [
+                        "git",
+                        "-C",
+                        str(repository),
+                        "check-ignore",
+                        "--quiet",
+                        str(relative_dependency),
+                    ],
+                    cwd=repository,
+                    timeout=30,
+                )
+            except RunnerError:
+                continue
+            await asyncio.to_thread(target_dependency.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(target_dependency.symlink_to, source_dependency, True)
         return target
+
+    async def cleanup_worktree(self, run_id: str, stored_worktree: Path) -> None:
+        root = self.settings.worktree_root.resolve()
+        expected_worktree = root / run_id
+        try:
+            resolved_worktree = stored_worktree.resolve()
+        except OSError as error:
+            raise RunnerError("开发 worktree 路径无法可靠解析，拒绝清理") from error
+        if resolved_worktree != expected_worktree:
+            raise RunnerError(f"开发 worktree 不匹配受管路径，拒绝清理：{resolved_worktree}")
+        repository = self.settings.repository.resolve()
+        await self._run(
+            [
+                "git",
+                "-C",
+                str(repository),
+                "worktree",
+                "remove",
+                "--force",
+                str(resolved_worktree),
+            ],
+            cwd=repository,
+            timeout=120,
+        )
+        await self._run(
+            ["git", "-C", str(repository), "worktree", "prune"],
+            cwd=repository,
+            timeout=30,
+        )
 
     async def verify(self, worktree: Path, approved_scenario_ids: frozenset[str]) -> str:
         await self._assert_implementation_gate(worktree, approved_scenario_ids)

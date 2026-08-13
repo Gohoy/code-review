@@ -3,10 +3,10 @@
 .coverage
 coverage.json
 .ruff_cache/
-.venv/
+.venv
 __pycache__/
 data/
 prototype/dist/
 prototype/design-qa.md
 prototype/design-qa/
-prototype/node_modules/
+prototype/node_modules
