@@ -343,6 +343,8 @@ class Runner:
                 "-c",
                 "project_doc_max_bytes=0",
                 "-c",
+                'approval_policy="never"',
+                "-c",
                 f'model_catalog_json="{model_catalog}"',
                 "-c",
                 f"mcp_servers.sdbp_review.command={json.dumps(sys.executable)}",
