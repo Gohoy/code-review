@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import hashlib
 import json
@@ -26,16 +27,42 @@ VALIDATION_COMMANDS = (
     ("npm", "--prefix", "prototype", "run", "build"),
     ("npm", "--prefix", "prototype", "run", "test:sites"),
 )
-PROTECTED_IMPLEMENTATION_PATHS = (
-    "app/graph.py",
-    "model/graph.schema.json",
-    "model/review-tool.json",
-    "tests/test_scenarios.py",
-)
+SEMANTIC_VALIDATOR_PATH = "app/graph.py"
+VALIDATION_COMMANDS_PATH = "app/runner.py"
 
 
 class RunnerError(RuntimeError):
     """固定本地工具调用失败。"""
+
+
+def _is_test_path(path: str) -> bool:
+    name = Path(path).name
+    return (
+        path.startswith("tests/")
+        or "/tests/" in path
+        or "/__tests__/" in path
+        or name.startswith("test_")
+        or ".test." in name
+        or ".spec." in name
+    )
+
+
+def _constant_value(source: str, name: str) -> str:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return "<语法错误>"
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in node.targets
+        ):
+            return ast.dump(node.value, include_attributes=False)
+    return "<缺失>"
+
+
+def _pytest_node_ids(output: str, path: str) -> tuple[str, ...]:
+    prefix = f"{path}::"
+    return tuple(line.strip() for line in output.splitlines() if line.strip().startswith(prefix))
 
 
 class Runner:
@@ -205,14 +232,15 @@ class Runner:
             raise RunnerError("worktree 中不存在目标仓库目录")
         return target
 
-    async def verify(self, worktree: Path) -> str:
-        await self._assert_protected_unchanged(worktree)
+    async def verify(self, worktree: Path, approved_scenario_ids: frozenset[str]) -> str:
+        added_tests = await self._assert_implementation_gate(worktree, approved_scenario_ids)
         for command in VALIDATION_COMMANDS:
             await self._run(list(command), cwd=worktree, timeout=600)
-        return "项目固定测试全部通过"
+        evidence = await self._scenario_test_evidence(worktree, added_tests)
+        return "\n".join(("项目固定测试全部通过", *evidence))
 
     async def merge(self, worktree: Path, revision_id: str) -> str:
-        await self._assert_protected_unchanged(worktree)
+        await self._assert_implementation_gate(worktree, frozenset())
         repository = self.settings.repository.resolve()
         base_commit = (
             await self._run(
@@ -275,22 +303,95 @@ class Runner:
             timeout=30,
         )
 
-    async def _assert_protected_unchanged(self, worktree: Path) -> None:
-        changes = await self._run(
-            [
-                "git",
-                "-C",
-                str(worktree),
-                "status",
-                "--short",
-                "--",
-                *PROTECTED_IMPLEMENTATION_PATHS,
-            ],
-            cwd=worktree,
-            timeout=30,
+    async def _assert_implementation_gate(
+        self, worktree: Path, approved_scenario_ids: frozenset[str]
+    ) -> tuple[str, ...]:
+        tracked_text, changed_text, added_text = await asyncio.gather(
+            self._run(
+                ["git", "-C", str(worktree), "ls-tree", "-r", "--name-only", "HEAD"],
+                cwd=worktree,
+                timeout=30,
+            ),
+            self._run(
+                ["git", "-C", str(worktree), "diff", "--name-only", "HEAD"],
+                cwd=worktree,
+                timeout=30,
+            ),
+            self._run(
+                ["git", "-C", str(worktree), "ls-files", "--others", "--exclude-standard"],
+                cwd=worktree,
+                timeout=30,
+            ),
         )
-        if changes.strip():
-            raise RunnerError("自动验证拒绝修改批准模型、验证器或固定测试门禁")
+        tracked = frozenset(tracked_text.splitlines())
+        changed = frozenset((*changed_text.splitlines(), *added_text.splitlines()))
+        violations: list[str] = []
+        added_tests: list[str] = []
+        for path in sorted(changed):
+            if path.startswith("model/") and path.endswith(".json"):
+                violations.append(f"{path}：批准模型或 JSON Schema 不可修改")
+            if path == SEMANTIC_VALIDATOR_PATH:
+                violations.append(f"{path}：统一图语义校验器不可修改")
+            if path in tracked and _is_test_path(path):
+                violations.append(f"{path}：基线已有测试不可修改或删除")
+            elif path not in tracked and _is_test_path(path):
+                added_tests.append(path)
+
+        if VALIDATION_COMMANDS_PATH in tracked:
+            baseline_runner = await self._run(
+                ["git", "-C", str(worktree), "show", f"HEAD:{VALIDATION_COMMANDS_PATH}"],
+                cwd=worktree,
+                timeout=30,
+            )
+            current_path = worktree / VALIDATION_COMMANDS_PATH
+            current_runner = (
+                current_path.read_text(encoding="utf-8") if current_path.is_file() else ""
+            )
+            if _constant_value(baseline_runner, "VALIDATION_COMMANDS") != _constant_value(
+                current_runner, "VALIDATION_COMMANDS"
+            ):
+                violations.append(f"{VALIDATION_COMMANDS_PATH}：固定验证命令不可修改或削弱")
+
+        if approved_scenario_ids:
+            for path in added_tests:
+                if not path.endswith(".py"):
+                    violations.append(f"{path}：新增测试文件暂无法提取稳定场景测试名称")
+                    continue
+                collected = await self._run(
+                    ["uv", "run", "pytest", "--collect-only", "-q", path],
+                    cwd=worktree,
+                    timeout=120,
+                )
+                node_ids = _pytest_node_ids(collected, path)
+                if not node_ids:
+                    violations.append(f"{path}：新增测试文件未收集到测试")
+                for node_id in node_ids:
+                    if not any(scenario_id in node_id for scenario_id in approved_scenario_ids):
+                        violations.append(
+                            f"{path}：新增测试名称 {node_id} 未包含当前批准 revision 的稳定 SCN- ID"
+                        )
+        if violations:
+            detail = "\n".join(f"- {item}" for item in violations)
+            raise RunnerError(f"自动验证门禁拒绝：\n{detail}")
+        return tuple(added_tests)
+
+    async def _scenario_test_evidence(
+        self, worktree: Path, added_tests: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        evidence: list[str] = []
+        for path in added_tests:
+            output = await self._run(
+                ["uv", "run", "pytest", "-q", "-rA", path], cwd=worktree, timeout=600
+            )
+            passed = tuple(
+                line.removeprefix("PASSED ").strip()
+                for line in output.splitlines()
+                if line.startswith("PASSED ")
+            )
+            if not passed:
+                raise RunnerError(f"{path}：新增场景测试缺少逐测试通过结果")
+            evidence.extend(f"OBSERVED PASS：{node_id}" for node_id in passed)
+        return tuple(evidence)
 
     async def _assert_merge_target(self, repository: Path, base_commit: str) -> str:
         branch = (

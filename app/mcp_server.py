@@ -272,7 +272,14 @@ async def test_run() -> JsonObject:
         run_id = _implementation_id()
         worktree = await asyncio.to_thread(store.begin_test, run_id)
         try:
-            summary = await runner.verify(worktree)
+            document = store.current_document()
+            graph = cast(JsonObject, document["graph"])
+            scenario_ids = frozenset(
+                str(node["id"])
+                for node in cast(list[JsonObject], graph["nodes"])
+                if node.get("kind") == "Scenario" and str(node.get("id", "")).startswith("SCN-")
+            )
+            summary = await runner.verify(worktree, scenario_ids)
         except Exception as error:
             await asyncio.to_thread(store.finish_test, run_id, False, str(error))
             raise
