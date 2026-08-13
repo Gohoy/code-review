@@ -1408,7 +1408,7 @@
           "then": [
             "主页面仅以仓库统一图作为默认核心内容并占满可用空间",
             "需求对话默认关闭，用户通过对话入口按需从左侧抽屉展开",
-            "统一图支持通过按钮或鼠标滚轮放大、缩小，支持拖拽平移并可复位视图",
+            "统一图由成熟画布交互组件统一处理按钮、鼠标滚轮、触控板和触屏手势的平滑缩放与拖拽平移，并可复位视图",
             "点击节点后右侧显示该节点的原因、影响和验收详情",
             "缩放、平移、折叠和选中状态不改变统一图模型语义或内容哈希"
           ],
@@ -1632,7 +1632,7 @@
       {
         "details": {
           "interaction": [
-            "统一图支持通过按钮或鼠标滚轮放大、缩小，支持拖拽平移和视图复位",
+            "统一图由成熟画布交互组件统一处理按钮、鼠标滚轮、触控板和触屏手势的平滑缩放、拖拽平移与视图复位",
             "默认展示需求图；点击需求节点高亮相关主流程并展开直接场景",
             "右侧先显示需求概要，再按需展开函数级代码调用链",
             "只有“批准并开始开发”操作触发批准"
@@ -1693,9 +1693,11 @@
       {
         "details": {
           "codePath": "Scenario → realized_by → Design → implemented_by → EntryPoint → calls/reads/writes/invokes",
+          "interactionEngine": "react-zoom-pan-pinch",
           "layout": "Graphviz dot",
           "selection": "默认 requirement；focusId 高亮相关需求路径并展开直接场景；代码链从同一统一图实时投影",
-          "semanticRule": "坐标、缩放、折叠和焦点不进入内容哈希"
+          "semanticRule": "坐标、缩放、折叠和焦点不进入内容哈希",
+          "viewport": "由画布组件管理缩放焦点、平移边界和触控手势；业务代码只保留节点选择"
         },
         "id": "DESIGN-COMPONENT-GRAPH-PROJECTION",
         "kind": "Component",
@@ -2500,7 +2502,7 @@
   "revision": {
     "approvable": true,
     "baseRevisionId": "REV-REVIEW-TOOL-012",
-    "contentHash": "f6020312f0a0ce4fdf9c1b09dd4566fd79bbae4575f245b61e0eae5361f4e632",
+    "contentHash": "5024a53f2bcb91cdb5ba79a0cbc85474c44ffee9d510ce4933f5a4cdbaa275d6",
     "id": "REV-REVIEW-TOOL-013",
     "status": "CANDIDATE"
   },

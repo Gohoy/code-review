@@ -28,9 +28,14 @@ import {
   MenuOutlined,
   MinusOutlined,
   PlusOutlined,
-  ReloadOutlined,
   SendOutlined,
 } from "@ant-design/icons";
+import {
+  TransformComponent,
+  TransformWrapper,
+  useControls,
+  useTransformComponent,
+} from "react-zoom-pan-pinch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const { Header, Content, Footer, Sider } = Layout;
@@ -54,6 +59,19 @@ const runStatusTitles = {
   BLOCKED: "已阻断",
   FAILED: "失败",
 };
+
+function GraphControls() {
+  const { centerView, zoomIn, zoomOut } = useControls();
+  const scale = useTransformComponent(({ state: next }) => next.scale);
+  return (
+    <Space.Compact className="canvas-tools">
+      <Button aria-label="适应画布" icon={<FullscreenOutlined />} onClick={() => centerView(0.7)} />
+      <Button aria-label="缩小统一图" icon={<MinusOutlined />} onClick={() => zoomOut(0.2)} />
+      <Button aria-label="复位统一图视图" onClick={() => centerView(0.7)}>{Math.round(scale * 100)}%</Button>
+      <Button aria-label="放大统一图" icon={<PlusOutlined />} onClick={() => zoomIn(0.2)} />
+    </Space.Compact>
+  );
+}
 const agentTaskTitles = {
   REPOSITORY_BASELINE: "仓库基线建模",
   REQUIREMENT_CHANGE: "需求理解与设计",
@@ -278,8 +296,6 @@ export function ReviewApp() {
   const [requirementContext, setRequirementContext] = useState(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
-  const [viewport, setViewport] = useState({ scale: 1, x: 0, y: 0 });
-  const dragRef = useRef(null);
   const inputRef = useRef(null);
   const graphRef = useRef(null);
 
@@ -349,7 +365,7 @@ export function ReviewApp() {
       element.setAttribute("tabindex", "0");
       element.setAttribute("aria-label", element.querySelector("title")?.textContent || element.id);
     });
-  }, [svg]);
+  });
 
   async function submit() {
     const content = draft.trim();
@@ -392,36 +408,7 @@ export function ReviewApp() {
     if (!node?.id) return;
     event.preventDefault();
     setSelectedId(node.id);
-    setViewport((current) => ({ ...current, x: 0, y: 0 }));
     if (!desktop) setInspectorOpen(true);
-  }
-
-  function zoomBy(factor) {
-    setViewport((current) => ({ ...current, scale: Math.min(2.5, Math.max(0.35, current.scale * factor)) }));
-  }
-
-  function zoomWithWheel(event) {
-    if (event.deltaY === 0) return;
-    zoomBy(event.deltaY < 0 ? 1.1 : 0.9);
-  }
-
-  function beginPan(event) {
-    if (event.button !== 0 || event.target.closest?.("g.node, .canvas-tools")) return;
-    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function movePan(event) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const deltaX = event.clientX - drag.x;
-    const deltaY = event.clientY - drag.y;
-    dragRef.current = { ...drag, x: event.clientX, y: event.clientY };
-    setViewport((current) => ({ ...current, x: current.x + deltaX, y: current.y + deltaY }));
-  }
-
-  function endPan(event) {
-    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
   }
 
   function discuss() {
@@ -520,24 +507,25 @@ export function ReviewApp() {
               className={`graph-svg ${viewMode === "changes" ? "only-changes" : ""} ${selectedId ? "has-focus" : ""}`}
               onClick={activateNode}
               onKeyDown={activateNode}
-              onPointerDown={beginPan}
-              onPointerMove={movePan}
-              onPointerUp={endPan}
-              onPointerCancel={endPan}
-              onWheel={zoomWithWheel}
             >
-              <Space.Compact className="canvas-tools">
-                <Button aria-label="适应画布" icon={<FullscreenOutlined />} onClick={() => setViewport({ scale: 1, x: 0, y: 0 })} />
-                <Button aria-label="缩小统一图" icon={<MinusOutlined />} onClick={() => zoomBy(0.8)} />
-                <Button aria-label="复位统一图视图" onClick={() => setViewport({ scale: 1, x: 0, y: 0 })}>{Math.round(viewport.scale * 100)}%</Button>
-                <Button aria-label="放大统一图" icon={<PlusOutlined />} onClick={() => zoomBy(1.25)} />
-                <Button aria-label="重新生成统一图" icon={<ReloadOutlined />} onClick={() => setViewport({ scale: 1, x: 0, y: 0 })} />
-              </Space.Compact>
-              <div
-                className="graph-transform"
-                style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})` }}
-                dangerouslySetInnerHTML={{ __html: svg }}
-              />
+              <TransformWrapper
+                initialScale={0.7}
+                minScale={0.2}
+                maxScale={3}
+                centerOnInit
+                centerZoomedOut
+                limitToBounds={false}
+                smooth
+                wheel={{ step: 0.08, excluded: ["canvas-tools"] }}
+                panning={{ velocityDisabled: false, excluded: ["canvas-tools", "node"] }}
+                pinch={{ excluded: ["canvas-tools"] }}
+                doubleClick={{ mode: "toggle", excluded: ["canvas-tools", "node"] }}
+              >
+                <GraphControls />
+                <TransformComponent wrapperClass="graph-viewport" contentClass="graph-transform">
+                  <div dangerouslySetInnerHTML={{ __html: svg }} />
+                </TransformComponent>
+              </TransformWrapper>
             </div>
           ) : <Spin description="正在生成行为图…"><div className="graph-loading" /></Spin>}
         </Content>

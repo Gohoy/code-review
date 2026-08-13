@@ -16,6 +16,7 @@ Before making substantial visual changes, use the Product Design plugin's `get-c
 
 - 产品图用于确认信息架构和核心流程，不要求逐像素还原 CSS。
 - 前端统一使用 Ant Design 封装组件和响应式能力，只保留布局、行为图 SVG 与必要断点的少量 CSS。
+- 统一图的缩放、平移、触控与视图复位使用成熟画布组件，不在业务组件中手写坐标和指针状态。
 - 桌面端和窄屏均将对话收进 Drawer；桌面端保留右侧详情，窄屏将详情也收进 Drawer，主画布保持完整可操作。
 
 Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts/prepare-sites-build.mjs`, and `tests/sites-worker.test.mjs` intact so the same local prototype can be handed to Sites. Before a Sites handoff, run `npm run build` and `npm run test:sites`; the build must leave `dist/client/index.html`, `dist/server/index.js`, and `dist/.openai/hosting.json`.

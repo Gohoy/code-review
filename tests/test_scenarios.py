@@ -566,7 +566,13 @@ def test_统一画布投影稳定节点ID和分层(tmp_path: Path, scenario_id: 
     )
     outcomes = cast(JsonObject, scenario["details"])["then"]
     assert any("需求对话默认关闭" in item for item in outcomes)
-    assert any("鼠标滚轮" in item for item in outcomes)
+    assert any("成熟画布交互组件" in item for item in outcomes)
+    projection = next(
+        node
+        for node in cast(list[JsonObject], cast(JsonObject, document["graph"])["nodes"])
+        if node["id"] == "DESIGN-COMPONENT-GRAPH-PROJECTION"
+    )
+    assert cast(JsonObject, projection["details"])["interactionEngine"] == "react-zoom-pan-pinch"
     revision = cast(JsonObject, document["revision"])
     base = load_object(ROOT / "model" / "revision" / f"{revision['baseRevisionId']}.json")
     node_ids, edge_ids = changed_ids(base, document)
