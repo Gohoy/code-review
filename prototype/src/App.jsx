@@ -343,7 +343,7 @@ export function ReviewApp() {
 
   const fitView = useCallback(() => {
     const container = graphRef.current;
-    const svgElement = container?.querySelector("svg");
+    const svgElement = container?.querySelector(".graph-transform > div > svg");
     const api = transformRef.current;
     if (!container || !svgElement || !api) return;
     const bounds = svgElement.getBBox();
