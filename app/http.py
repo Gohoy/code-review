@@ -29,17 +29,40 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
         return JSONResponse({"status": "ok"})
 
     async def state(_: Request) -> JSONResponse:
-        return JSONResponse(await service.state(), headers={"Cache-Control": "no-store"})
+        return JSONResponse(await service.status(), headers={"Cache-Control": "no-store"})
+
+    async def revision(request: Request) -> JSONResponse:
+        document = await service.revision(request.path_params["revision_id"])
+        content_hash = cast(JsonObject, document["revision"])["contentHash"]
+        return JSONResponse(
+            document,
+            headers={
+                "Cache-Control": "private, max-age=31536000, immutable",
+                "ETag": f'"{content_hash}"',
+            },
+        )
 
     async def graph(request: Request) -> Response:
-        layers = {
-            value
-            for value in request.query_params.get("layers", "requirement,design").split(",")
-            if value
-        }
+        revision_id = request.query_params.get("revisionId")
+        if not revision_id:
+            raise GraphError("revisionId 必须显式提供")
+        layer = request.query_params.get("layer")
+        if not layer:
+            raise GraphError("layer 必须显式提供")
+        layers = {value for value in layer.split(",") if value}
         focus_id = request.query_params.get("focusId") or None
-        svg = await service.graph_svg(layers, focus_id)
-        return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+        svg, content_hash = await service.graph_svg(revision_id, layers, focus_id)
+        etag = f'"{content_hash}:{layer}:{focus_id or ""}"'
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers={"ETag": etag})
+        return Response(
+            svg,
+            media_type="image/svg+xml",
+            headers={
+                "Cache-Control": "private, max-age=31536000, immutable",
+                "ETag": etag,
+            },
+        )
 
     async def requirement_context(request: Request) -> JSONResponse:
         return JSONResponse(
@@ -81,6 +104,7 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
     routes = [
         Route("/healthz", health),
         Route("/api/state", state),
+        Route("/api/revision/{revision_id:str}", revision),
         Route("/api/graph.svg", graph),
         Route("/api/requirement/{focus_id:str}/context", requirement_context),
         Route("/api/message", message, methods=["POST"]),

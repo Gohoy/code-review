@@ -60,14 +60,14 @@ const runStatusTitles = {
   FAILED: "失败",
 };
 
-function GraphControls() {
-  const { centerView, zoomIn, zoomOut } = useControls();
+function GraphControls({ fitView }) {
+  const { zoomIn, zoomOut, resetTransform } = useControls();
   const scale = useTransformComponent(({ state: next }) => next.scale);
   return (
     <Space.Compact className="canvas-tools">
-      <Button aria-label="适应画布" icon={<FullscreenOutlined />} onClick={() => centerView(0.7)} />
+      <Button aria-label="适应画布" icon={<FullscreenOutlined />} onClick={fitView} />
       <Button aria-label="缩小统一图" icon={<MinusOutlined />} onClick={() => zoomOut(0.2)} />
-      <Button aria-label="复位统一图视图" onClick={() => centerView(0.7)}>{Math.round(scale * 100)}%</Button>
+      <Button aria-label="复位统一图视图" onClick={() => { resetTransform(); requestAnimationFrame(fitView); }}>{Math.round(scale * 100)}%</Button>
       <Button aria-label="放大统一图" icon={<PlusOutlined />} onClick={() => zoomIn(0.2)} />
     </Space.Compact>
   );
@@ -93,13 +93,21 @@ async function request(url, options) {
   return body;
 }
 
-function Conversation({ state, draft, setDraft, sending, onSubmit, inputRef }) {
+function Conversation({ state, draft, setDraft, sending, onSubmit, inputRef, open }) {
   const messages = state?.messages || [];
   const agentRunning = state?.requirement?.operationStatus === "AGENT_RUNNING";
+  const listRef = useRef(null);
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
+  useEffect(() => {
+    if (open && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [open]);
   return (
     <Flex vertical className="panel conversation-panel">
       <div className="panel-heading"><Title level={4}>需求对话</Title></div>
-      <div className="message-list">
+      <div className="message-list" ref={listRef} onScroll={(event) => {
+        const element = event.currentTarget;
+        setAwayFromLatest(element.scrollHeight - element.scrollTop - element.clientHeight > 48);
+      }}>
         {messages.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="描述第一个需求" />
         ) : messages.map((item) => {
@@ -122,6 +130,7 @@ function Conversation({ state, draft, setDraft, sending, onSubmit, inputRef }) {
           );
         })}
       </div>
+      {awayFromLatest && <Button className="latest-message" size="small" onClick={() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })}>返回最新消息</Button>}
       {agentRunning && <Spin size="small" description="Agent 正在读取统一图并调用工具…"><div className="thinking-space" /></Spin>}
       <div className="composer">
         <Input.TextArea
@@ -296,12 +305,22 @@ export function ReviewApp() {
   const [requirementContext, setRequirementContext] = useState(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
+  const [footerOpen, setFooterOpen] = useState(false);
   const inputRef = useRef(null);
   const graphRef = useRef(null);
+  const transformRef = useRef(null);
+  const loadedRevisionRef = useRef(null);
 
   const refresh = useCallback(async () => {
     try {
-      setState(await request("/api/state"));
+      const status = await request("/api/state");
+      const revisionId = status.revision?.id;
+      let document = loadedRevisionRef.current;
+      if (!document || document.revision.id !== revisionId) {
+        document = await request(`/api/revision/${encodeURIComponent(revisionId)}`);
+        loadedRevisionRef.current = document;
+      }
+      setState({ ...status, revision: document });
     } catch (error) {
       toast.error(error.message);
     }
@@ -321,6 +340,31 @@ export function ReviewApp() {
     () => nodes.find((node) => node.id === selectedId),
     [nodes, selectedId],
   );
+
+  const fitView = useCallback(() => {
+    const container = graphRef.current;
+    const svgElement = container?.querySelector("svg");
+    const api = transformRef.current;
+    if (!container || !svgElement || !api) return;
+    const bounds = svgElement.getBBox();
+    const padding = 32;
+    const scale = Math.min(
+      (container.clientWidth - padding * 2) / Math.max(bounds.width, 1),
+      (container.clientHeight - padding * 2) / Math.max(bounds.height, 1),
+      1,
+    );
+    const x = (container.clientWidth - bounds.width * scale) / 2 - bounds.x * scale;
+    const y = (container.clientHeight - bounds.height * scale) / 2 - bounds.y * scale;
+    api.setTransform(x, y, scale, 200, "easeOut");
+  }, []);
+
+  useEffect(() => {
+    if (!svg) return undefined;
+    const frame = requestAnimationFrame(fitView);
+    const observer = new ResizeObserver(fitView);
+    if (graphRef.current) observer.observe(graphRef.current);
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+  }, [svg, layer, fitView]);
 
   useEffect(() => {
     if (selectedId && !nodes.some((node) => node.id === selectedId)) setSelectedId(null);
@@ -344,8 +388,7 @@ export function ReviewApp() {
 
   useEffect(() => {
     if (!revision) return;
-    const parameters = new URLSearchParams({ layers: layer });
-    if (selectedId) parameters.set("focusId", selectedId);
+    const parameters = new URLSearchParams({ revisionId: revision.id, layer, focusId: selectedId || "" });
     setGraphError("");
     fetch(`/api/graph.svg?${parameters}`)
       .then(async (response) => {
@@ -449,7 +492,7 @@ export function ReviewApp() {
     && state.requirement.operationStatus === "IDLE";
   const unavailable = Object.entries(state.dependencies || {})
     .filter(([, value]) => String(value).startsWith("不可用"));
-  const conversation = <Conversation state={state} draft={draft} setDraft={setDraft} sending={sending} onSubmit={submit} inputRef={inputRef} />;
+  const conversation = <Conversation state={state} draft={draft} setDraft={setDraft} sending={sending} onSubmit={submit} inputRef={inputRef} open={conversationOpen} />;
   const inspector = <Inspector node={selected} graph={graph} changedNodeIds={state.changedNodeIds || []} context={requirementContext} contextLoading={contextLoading} codeOpen={codeOpen} setCodeOpen={setCodeOpen} />;
   const tools = (state.toolInvocations || []).filter(
     (tool) => tool.agentRunId === state.agentRun?.id,
@@ -509,11 +552,10 @@ export function ReviewApp() {
               onKeyDown={activateNode}
             >
               <TransformWrapper
-                initialScale={0.7}
+                ref={transformRef}
+                initialScale={1}
                 minScale={0.2}
                 maxScale={3}
-                centerOnInit
-                centerZoomedOut
                 limitToBounds={false}
                 smooth
                 wheel={{ step: 0.08, excluded: ["canvas-tools"] }}
@@ -521,7 +563,7 @@ export function ReviewApp() {
                 pinch={{ excluded: ["canvas-tools"] }}
                 doubleClick={{ mode: "toggle", excluded: ["canvas-tools", "node"] }}
               >
-                <GraphControls />
+                <GraphControls fitView={fitView} />
                 <TransformComponent wrapperClass="graph-viewport" contentClass="graph-transform">
                   <div dangerouslySetInnerHTML={{ __html: svg }} />
                 </TransformComponent>
@@ -530,9 +572,10 @@ export function ReviewApp() {
           ) : <Spin description="正在生成行为图…"><div className="graph-loading" /></Spin>}
         </Content>
         <Footer className="approval-bar">
-          <AgentActivity agent={state.agentRun} tools={tools} />
+          {desktop ? <AgentActivity agent={state.agentRun} tools={tools} /> : <Button type="text" size="small" onClick={() => setFooterOpen((value) => !value)}>{footerOpen ? "收起状态详情" : `状态详情 · ${runStatusTitles[state.agentRun?.status] || state.agentRun?.status || "空闲"}`}</Button>}
+          {!desktop && footerOpen && <AgentActivity agent={state.agentRun} tools={tools} />}
           <Flex justify="space-between" align="center" gap={16} wrap>
-            <Space orientation="vertical" size={2}>
+            <Space orientation="vertical" size={2} className={!desktop && !footerOpen ? "mobile-summary-hidden" : ""}>
               <Text>层级计数：需求 {state.layerCounts.requirement} · 技术设计 {state.layerCounts.design} · 代码实现 {state.layerCounts.implementation} · 测试证据 {state.layerCounts.verification}</Text>
               <Text type="secondary">
                 函数 {state.codeMetrics?.functionCount || 0} · 结构归属 {state.codeMetrics?.structurallyOwnedFunctionCount || 0} · 语义归属 {state.codeMetrics?.semanticallyOwnedFunctionCount || 0}（直接 {state.codeMetrics?.directlyOwnedFunctionCount || 0} / 继承 {state.codeMetrics?.inheritedFunctionCount || 0}） · 未归属 {state.codeMetrics?.unownedFunctionCount || 0} · 覆盖率 {state.codeMetrics?.coverageStatus === "OBSERVED" ? `${state.codeMetrics.coveredFunctionCount} 已覆盖 / ${state.codeMetrics.uncoveredFunctionCount} 未覆盖` : "暂无真实产物"}

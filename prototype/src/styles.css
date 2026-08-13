@@ -14,6 +14,7 @@ body { margin: 0; min-width: 320px; }
 .panel h4, .workspace-header h3 { margin: 0; }
 .conversation-panel { padding-bottom: 14px; }
 .message-list { flex: 1; min-height: 0; overflow: auto; }
+.latest-message { align-self: center; margin-top: 6px; }
 .message-list > .ant-empty { margin-top: 96px; }
 .message-item { display: flex; gap: 12px; align-items: flex-start; padding-block: 18px; border-bottom: 1px solid #f0f0f0; }
 .message-body { flex: 1; min-width: 0; }
@@ -74,7 +75,9 @@ body { margin: 0; min-width: 320px; }
 }
 
 @media (max-width: 600px) {
-  .workspace-header { min-height: 172px; }
-  .graph-transform svg { width: 1400px; }
-  .approval-bar .ant-btn-lg { width: 100%; }
+  .workspace-header { min-height: 150px; padding: 12px; }
+  .graph-transform svg { width: auto; max-width: none; }
+  .approval-bar { max-height: 42dvh; padding: 6px 10px; overflow: auto; }
+  .approval-bar .ant-btn-lg { width: auto; }
+  .mobile-summary-hidden { display: none; }
 }

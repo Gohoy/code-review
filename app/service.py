@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from collections.abc import Coroutine
 from pathlib import Path
 from typing import cast
 
 from app.graph import (
+    GraphError,
     JsonObject,
     approval_errors,
     changed_ids,
@@ -93,14 +95,85 @@ class ReviewService:
         }
         return state
 
-    async def graph_svg(self, layers: set[str], focus_id: str | None) -> str:
+    async def status(self) -> JsonObject:
+        """返回周期轮询所需的轻量状态。"""
+        state = await self.state()
+        document = cast(JsonObject, state.pop("revision"))
+        state.pop("baseRevision", None)
+        state["revision"] = cast(JsonObject, document["revision"])
+        return state
+
+    async def revision(self, revision_id: str) -> JsonObject:
         state = await asyncio.to_thread(self.store.state)
         document = cast(JsonObject, state["revision"])
+        revision = cast(JsonObject, document["revision"])
+        if revision.get("id") != revision_id:
+            raise GraphError("revision 已变化，请刷新状态后重试")
+        return document
+
+    async def graph_svg(
+        self, revision_id: str, layers: set[str], focus_id: str | None
+    ) -> tuple[str, str]:
+        state = await asyncio.to_thread(self.store.state)
+        document = cast(JsonObject, state["revision"])
+        revision = cast(JsonObject, document["revision"])
+        if revision.get("id") != revision_id:
+            raise GraphError("revision 已变化，请刷新状态后重试")
         base_value = state.get("baseRevision")
         base = cast(JsonObject, base_value) if isinstance(base_value, dict) else None
         node_ids, edge_ids = changed_ids(base, document)
-        dot_source = to_dot(document, layers, node_ids, edge_ids, focus_id)
-        return await self.runner.render(dot_source)
+        projection = copy.deepcopy(document)
+        if "implementation" in layers:
+            graph = cast(JsonObject, projection["graph"])
+            nodes = cast(list[JsonObject], graph["nodes"])
+            edges = cast(list[JsonObject], graph["edges"])
+            module_ids = {
+                str(node["id"])
+                for node in nodes
+                if node.get("layer") == "implementation" and node.get("kind") == "Module"
+            }
+            expanded_modules: set[str] = set()
+            if focus_id in module_ids:
+                expanded_modules.add(cast(str, focus_id))
+            elif focus_id:
+                related = {focus_id}
+                pending = [focus_id]
+                while pending:
+                    current = pending.pop()
+                    for edge in edges:
+                        if edge.get("sourceId") != current or edge.get("kind") not in {
+                            "contains",
+                            "realized_by",
+                            "implemented_by",
+                            "verified_by",
+                        }:
+                            continue
+                        target_id = str(edge["targetId"])
+                        if target_id not in related:
+                            related.add(target_id)
+                            pending.append(target_id)
+                expanded_modules = module_ids & related
+            expanded_symbols = {
+                str(edge["targetId"])
+                for edge in edges
+                if edge.get("kind") == "contains" and edge.get("sourceId") in expanded_modules
+            }
+            graph["nodes"] = [
+                node
+                for node in nodes
+                if node.get("layer") != "implementation"
+                or node.get("kind") != "Symbol"
+                or node.get("id") in expanded_symbols
+            ]
+            retained_ids = {str(node["id"]) for node in cast(list[JsonObject], graph["nodes"])}
+            graph["edges"] = [
+                edge
+                for edge in edges
+                if edge.get("sourceId") in retained_ids and edge.get("targetId") in retained_ids
+            ]
+        dot_source = to_dot(projection, layers, node_ids, edge_ids, focus_id)
+        svg = await self.runner.render(dot_source)
+        return svg, str(revision["contentHash"])
 
     async def requirement_context(self, focus_id: str) -> JsonObject:
         state = await asyncio.to_thread(self.store.state)
