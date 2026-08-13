@@ -400,8 +400,13 @@ export function ReviewApp() {
     setViewport((current) => ({ ...current, scale: Math.min(2.5, Math.max(0.35, current.scale * factor)) }));
   }
 
+  function zoomWithWheel(event) {
+    if (event.deltaY === 0) return;
+    zoomBy(event.deltaY < 0 ? 1.1 : 0.9);
+  }
+
   function beginPan(event) {
-    if (event.button !== 0 || event.target.closest?.("g.node")) return;
+    if (event.button !== 0 || event.target.closest?.("g.node, .canvas-tools")) return;
     dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -465,7 +470,6 @@ export function ReviewApp() {
 
   return (
     <Layout className="review-shell">
-      {desktop && <Sider width={wideDesktop ? 326 : 286} theme="light" className="side-panel">{conversation}</Sider>}
       <Layout className="main-column">
         <Header className="workspace-header">
           <Flex justify="space-between" align="flex-start" gap={12} wrap>
@@ -520,6 +524,7 @@ export function ReviewApp() {
               onPointerMove={movePan}
               onPointerUp={endPan}
               onPointerCancel={endPan}
+              onWheel={zoomWithWheel}
             >
               <Space.Compact className="canvas-tools">
                 <Button aria-label="适应画布" icon={<FullscreenOutlined />} onClick={() => setViewport({ scale: 1, x: 0, y: 0 })} />
