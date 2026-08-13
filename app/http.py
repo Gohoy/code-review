@@ -60,8 +60,16 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
             raise GraphError("layer 必须显式提供")
         layers = {value for value in layer.split(",") if value}
         focus_id = request.query_params.get("focusId") or None
-        svg, content_hash = await service.graph_svg(revision_id, layers, focus_id)
-        etag = f'"{content_hash}:{layer}:{focus_id or ""}"'
+        view_mode = request.query_params.get("viewMode")
+        if not view_mode:
+            raise GraphError("viewMode 必须显式提供")
+        direction = request.query_params.get("direction")
+        if not direction:
+            raise GraphError("direction 必须显式提供")
+        svg, content_hash = await service.graph_svg(
+            revision_id, layers, focus_id, view_mode, direction
+        )
+        etag = f'"{content_hash}:{layer}:{focus_id or ""}:{view_mode}:{direction}"'
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers={"ETag": etag})
         return Response(

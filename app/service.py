@@ -10,6 +10,7 @@ from typing import cast
 from app.graph import (
     GraphError,
     JsonObject,
+    _mainline_ids,
     approval_errors,
     changed_ids,
     code_ownership,
@@ -121,8 +122,17 @@ class ReviewService:
         return immutable_document
 
     async def graph_svg(
-        self, revision_id: str, layers: set[str], focus_id: str | None
+        self,
+        revision_id: str,
+        layers: set[str],
+        focus_id: str | None,
+        view_mode: str = "context",
+        direction: str = "LR",
     ) -> tuple[str, str]:
+        if view_mode not in {"changes", "context"}:
+            raise GraphError("viewMode 参数无效")
+        if direction not in {"LR", "TB"}:
+            raise GraphError("direction 参数无效")
         state = await asyncio.to_thread(self.store.state)
         document = cast(JsonObject, state["revision"])
         revision = cast(JsonObject, document["revision"])
@@ -132,8 +142,37 @@ class ReviewService:
         base = cast(JsonObject, base_value) if isinstance(base_value, dict) else None
         node_ids, edge_ids = changed_ids(base, document)
         projection = copy.deepcopy(document)
+        graph = cast(JsonObject, projection["graph"])
+        nodes = cast(list[JsonObject], graph["nodes"])
+        edges = cast(list[JsonObject], graph["edges"])
+        if view_mode == "changes" and "requirement" in layers:
+            requirement_ids = {
+                str(node["id"]) for node in nodes if node.get("layer") == "requirement"
+            }
+            retained_requirement_ids = _mainline_ids(graph, edges)
+            retained_requirement_ids.update(node_ids & requirement_ids)
+            if focus_id in requirement_ids:
+                retained_requirement_ids.add(cast(str, focus_id))
+                retained_requirement_ids.update(
+                    str(edge[endpoint])
+                    for edge in edges
+                    for endpoint in ("sourceId", "targetId")
+                    if edge.get("kind") in {"contains", "next", "branch", "produces", "guarded_by"}
+                    and focus_id in {edge.get("sourceId"), edge.get("targetId")}
+                    and edge.get(endpoint) in requirement_ids
+                )
+            graph["nodes"] = [
+                node
+                for node in nodes
+                if node.get("layer") != "requirement" or node.get("id") in retained_requirement_ids
+            ]
+            retained_ids = {str(node["id"]) for node in cast(list[JsonObject], graph["nodes"])}
+            graph["edges"] = [
+                edge
+                for edge in edges
+                if edge.get("sourceId") in retained_ids and edge.get("targetId") in retained_ids
+            ]
         if "implementation" in layers:
-            graph = cast(JsonObject, projection["graph"])
             nodes = cast(list[JsonObject], graph["nodes"])
             edges = cast(list[JsonObject], graph["edges"])
             nodes_by_id = {str(node["id"]): node for node in nodes}
@@ -207,7 +246,26 @@ class ReviewService:
                 for edge in edges
                 if edge.get("sourceId") in retained_ids and edge.get("targetId") in retained_ids
             ]
-        dot_source = to_dot(projection, layers, node_ids, edge_ids, focus_id)
+        visible_node_ids = set(node_ids)
+        if view_mode == "context" and "requirement" in layers:
+            visible_node_ids.update(
+                str(node["id"])
+                for node in cast(list[JsonObject], graph["nodes"])
+                if node.get("layer") == "requirement"
+            )
+        if visible_node_ids == node_ids:
+            dot_source = to_dot(projection, layers, node_ids, edge_ids, focus_id)
+        else:
+            dot_source = to_dot(projection, layers, visible_node_ids, edge_ids, focus_id)
+        if visible_node_ids != node_ids:
+            dot_source = "\n".join(
+                line.replace(" changed", "")
+                if 'class="node ' in line
+                and not any(f'id="{node_id}"' in line for node_id in node_ids)
+                else line
+                for line in dot_source.splitlines()
+            )
+        dot_source = dot_source.replace('rankdir="LR"', f'rankdir="{direction}"', 1)
         svg = await self.runner.render(dot_source)
         return svg, str(revision["contentHash"])
 

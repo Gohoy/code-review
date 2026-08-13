@@ -60,6 +60,32 @@ const runStatusTitles = {
   FAILED: "失败",
 };
 
+export function graphProjectionKey(viewMode, direction) {
+  return `${viewMode}:${direction}`;
+}
+
+export function observeGraphFit(fitView, element) {
+  const frame = requestAnimationFrame(fitView);
+  const observer = new ResizeObserver(fitView);
+  if (element) observer.observe(element);
+  return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+}
+
+export function fitGraphView(container) {
+  const svgElement = container?.querySelector(".graph-transform > div > svg");
+  if (!container || !svgElement) return undefined;
+  // 不使用 svgElement.getBBox()：其 viewBox 坐标与 CSS 呈现尺寸不一致。
+  const svgWidth = Math.max(svgElement.clientWidth, 1);
+  const svgHeight = Math.max(svgElement.clientHeight, 1);
+  const padding = 32;
+  const scale = Math.min(
+    Math.max(container.clientWidth - padding * 2, 1) / svgWidth,
+    Math.max(container.clientHeight - padding * 2, 1) / svgHeight,
+    3,
+  );
+  return scale;
+}
+
 function GraphControls({ fitView }) {
   const { zoomIn, zoomOut, resetTransform } = useControls();
   const scale = useTransformComponent(({ state: next }) => next.scale);
@@ -291,6 +317,7 @@ export function ReviewApp() {
   const breakpoints = Grid.useBreakpoint();
   const desktop = Boolean(breakpoints.xl);
   const wideDesktop = Boolean(breakpoints.xxl);
+  const direction = desktop ? "LR" : "TB";
   const [state, setState] = useState(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -348,29 +375,22 @@ export function ReviewApp() {
   );
 
   const fitView = useCallback(() => {
-    const container = graphRef.current;
-    const svgElement = container?.querySelector(".graph-transform > div > svg");
     const api = transformRef.current;
-    if (!container || !svgElement || !api) return;
-    // 旧实现调用 svgElement.getBBox()，其 viewBox 坐标与 CSS 呈现尺寸不一致。
-    const svgWidth = Math.max(svgElement.clientWidth, 1);
-    const svgHeight = Math.max(svgElement.clientHeight, 1);
-    const padding = 32;
-    const scale = Math.min(
-      Math.max(container.clientWidth - padding * 2, 1) / svgWidth,
-      Math.max(container.clientHeight - padding * 2, 1) / svgHeight,
-      3,
-    );
-    api.centerView(scale, 200, "easeOut");
+    const scale = fitGraphView(graphRef.current);
+    if (api && scale !== undefined) api.centerView(scale, 200, "easeOut");
   }, []);
 
-  useEffect(() => {
-    if (!svg) return undefined;
-    const frame = requestAnimationFrame(fitView);
-    const observer = new ResizeObserver(fitView);
-    if (graphRef.current) observer.observe(graphRef.current);
-    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
-  }, [svg, layer, selectedId, fitView]);
+  const projectionKey = graphProjectionKey(viewMode, direction);
+  useEffect(
+    () => svg ? observeGraphFit(fitView, graphRef.current) : undefined,
+    [svg, layer, selectedId, fitView],
+  );
+  useEffect(
+    () => {
+      if (svg) fitView();
+    },
+    [projectionKey, fitView],
+  );
 
   useEffect(() => {
     if (selectedId && !nodes.some((node) => node.id === selectedId)) setSelectedId(null);
@@ -394,7 +414,13 @@ export function ReviewApp() {
 
   useEffect(() => {
     if (!revision) return;
-    const parameters = new URLSearchParams({ revisionId: revision.id, layer, focusId: selectedId || "" });
+    const parameters = new URLSearchParams({
+      revisionId: revision.id,
+      layer,
+      focusId: selectedId || "",
+      viewMode,
+      direction,
+    });
     setGraphError("");
     fetch(`/api/graph.svg?${parameters}`)
       .then(async (response) => {
@@ -406,7 +432,7 @@ export function ReviewApp() {
       })
       .then(setSvg)
       .catch((error) => setGraphError(error.message));
-  }, [layer, revision?.id, selectedId]);
+  }, [layer, revision?.id, selectedId, viewMode, direction]);
 
   useEffect(() => {
     graphRef.current?.querySelectorAll("g.node").forEach((element) => {
