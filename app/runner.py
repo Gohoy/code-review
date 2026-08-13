@@ -233,10 +233,11 @@ class Runner:
         return target
 
     async def verify(self, worktree: Path, approved_scenario_ids: frozenset[str]) -> str:
-        added_tests = await self._assert_implementation_gate(worktree, approved_scenario_ids)
+        await self._assert_implementation_gate(worktree, approved_scenario_ids)
+        await self._run(["npm", "--prefix", "prototype", "ci"], cwd=worktree, timeout=600)
         for command in VALIDATION_COMMANDS:
             await self._run(list(command), cwd=worktree, timeout=600)
-        evidence = await self._scenario_test_evidence(worktree, added_tests)
+        evidence = await self._scenario_test_evidence(worktree, approved_scenario_ids)
         return "\n".join(("项目固定测试全部通过", *evidence))
 
     async def merge(self, worktree: Path, revision_id: str) -> str:
@@ -376,21 +377,41 @@ class Runner:
         return tuple(added_tests)
 
     async def _scenario_test_evidence(
-        self, worktree: Path, added_tests: tuple[str, ...]
+        self, worktree: Path, approved_scenario_ids: frozenset[str]
     ) -> tuple[str, ...]:
+        if not approved_scenario_ids:
+            return ()
+        collected = await self._run(
+            ["uv", "run", "pytest", "--collect-only", "-q"],
+            cwd=worktree,
+            timeout=600,
+        )
+        node_ids = tuple(
+            line.strip()
+            for line in collected.splitlines()
+            if line.strip().startswith("tests/") and "::" in line
+        )
         evidence: list[str] = []
-        for path in added_tests:
+        for scenario_id in sorted(approved_scenario_ids):
+            matching = tuple(node_id for node_id in node_ids if scenario_id in node_id)
+            if not matching:
+                raise RunnerError(f"{scenario_id}：未收集到名称包含稳定场景 ID 的测试")
             output = await self._run(
-                ["uv", "run", "pytest", "-q", "-rA", path], cwd=worktree, timeout=600
+                ["uv", "run", "pytest", "-q", "-rA", *matching],
+                cwd=worktree,
+                timeout=600,
             )
             passed = tuple(
                 line.removeprefix("PASSED ").strip()
                 for line in output.splitlines()
                 if line.startswith("PASSED ")
             )
-            if not passed:
-                raise RunnerError(f"{path}：新增场景测试缺少逐测试通过结果")
-            evidence.extend(f"OBSERVED PASS：{node_id}" for node_id in passed)
+            if set(passed) != set(matching):
+                missing = sorted(set(matching) - set(passed))
+                raise RunnerError(
+                    f"{scenario_id}：场景测试缺少逐测试通过结果：{', '.join(missing)}"
+                )
+            evidence.extend(f"OBSERVED PASS：{scenario_id}：{node_id}" for node_id in passed)
         return tuple(evidence)
 
     async def _assert_merge_target(self, repository: Path, base_commit: str) -> str:
