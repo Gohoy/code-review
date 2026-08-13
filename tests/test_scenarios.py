@@ -15,6 +15,7 @@ from app.config import ROOT, Settings
 from app.graph import (
     GraphError,
     JsonObject,
+    apply_diff,
     changed_ids,
     code_index_diff,
     graph_hash,
@@ -828,8 +829,9 @@ def test_SCN_REPOSITORY_BASELINE_001_刷新保留稳定函数语义映射(tmp_pa
     refreshed = index_repository(tmp_path, ["service.py"], "3" * 40, "4" * 40, graph)
     base = with_code_snapshot(current, cast(JsonObject, refreshed["snapshot"]))
     diff = code_index_diff(base, refreshed)
+    result = apply_diff(base, diff, "REV-REVIEW-TOOL-999", schema())
 
-    assert mapping_id not in diff["deleteEdgeIds"]
+    assert mapping_id in {edge["id"] for edge in result["graph"]["edges"]}
 
 
 @pytest.mark.parametrize("scenario_id", ["SCN-CODE-AUTHORITY-001"], ids=lambda value: value)

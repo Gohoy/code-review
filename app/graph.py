@@ -206,11 +206,12 @@ def code_index_diff(current: JsonObject, index: JsonObject) -> JsonObject:
     }
     replaced_node_ids = previous_implementation_ids | previous_coverage_ids
     current_function_ids = {_string(function.get("id"), "function.id") for function in functions}
-    retained_mapping_ids = {
-        _string(edge.get("id"), "edge.id")
+    retained_mapping_edges = [
+        copy.deepcopy(edge)
         for edge in _objects(graph, "edges")
         if edge.get("kind") == "implemented_by" and edge.get("targetId") in current_function_ids
-    }
+    ]
+    retained_mapping_ids = {_string(edge.get("id"), "edge.id") for edge in retained_mapping_edges}
     delete_edge_ids = [
         _string(edge.get("id"), "edge.id")
         for edge in _objects(graph, "edges")
@@ -237,7 +238,7 @@ def code_index_diff(current: JsonObject, index: JsonObject) -> JsonObject:
             },
         }
     ]
-    upsert_edges: list[JsonObject] = []
+    upsert_edges: list[JsonObject] = retained_mapping_edges
     file_by_path = {_string(item.get("path"), "fileFact.path"): item for item in file_facts}
     functions_by_id = {_string(item.get("id"), "function.id"): item for item in functions}
 
