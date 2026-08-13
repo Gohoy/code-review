@@ -571,6 +571,8 @@ def test_统一画布投影稳定节点ID和分层(tmp_path: Path, scenario_id: 
     assert 'id="ACTION-GENERATE-UNIFIED-GRAPH"' in source
     assert "DESIGN-COMPONENT-GRAPH-PROJECTION" in source
     assert "SCN-REQ-DIALOG-001" not in source
+    implementation = to_dot(document, {"implementation"}, node_ids, edge_ids, None)
+    assert 'splines="polyline"' in implementation
     assert scenario_id.startswith("SCN-")
 
 

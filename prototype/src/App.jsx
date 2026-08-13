@@ -165,7 +165,9 @@ function Inspector({ node, graph, changedNodeIds, context, contextLoading, codeO
             {item.caller && <Text type="secondary" className="code-caller">调用自 {item.caller}</Text>}
             <Space size={4} wrap>
               <Tag color={item.source === "DERIVED" ? "purple" : "default"}>{sourceTitles[item.source] || item.source}</Tag>
-              <Tag color={item.verified ? "success" : "default"}>{item.verified ? "测试覆盖" : "未关联测试"}</Tag>
+              <Tag color={item.coverage?.status === "COVERED" ? "success" : item.coverage?.status === "UNCOVERED" ? "error" : "default"}>
+                {item.coverage?.status === "COVERED" ? "测试已覆盖" : item.coverage?.status === "UNCOVERED" ? "测试未覆盖" : "覆盖率未知"}
+              </Tag>
             </Space>
           </div>
         </div>

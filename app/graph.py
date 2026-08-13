@@ -198,11 +198,17 @@ def code_index_diff(current: JsonObject, index: JsonObject) -> JsonObject:
         for node in _objects(graph, "nodes")
         if node.get("layer") == "implementation"
     }
+    previous_coverage_ids = {
+        _string(node.get("id"), "node.id")
+        for node in _objects(graph, "nodes")
+        if node.get("layer") == "verification"
+        and _string(node.get("id"), "node.id").startswith("EVIDENCE-COVERAGE-")
+    }
+    replaced_node_ids = previous_implementation_ids | previous_coverage_ids
     delete_edge_ids = [
         _string(edge.get("id"), "edge.id")
         for edge in _objects(graph, "edges")
-        if edge.get("sourceId") in previous_implementation_ids
-        or edge.get("targetId") in previous_implementation_ids
+        if edge.get("sourceId") in replaced_node_ids or edge.get("targetId") in replaced_node_ids
     ]
     repository_node_id = "IMPL-REPOSITORY-LOCAL"
     module_ids: dict[str, str] = {}
@@ -361,7 +367,7 @@ def code_index_diff(current: JsonObject, index: JsonObject) -> JsonObject:
     return {
         "baseRevisionId": revision["id"],
         "upsertNodes": upsert_nodes,
-        "deleteNodeIds": sorted(previous_implementation_ids),
+        "deleteNodeIds": sorted(replaced_node_ids),
         "upsertEdges": upsert_edges,
         "deleteEdgeIds": delete_edge_ids,
     }
@@ -473,10 +479,11 @@ def to_dot(
             if node_id in nodes and nodes[node_id].get("layer") in layers
         )
 
+    spline = "polyline" if "implementation" in layers else "ortho"
     lines = [
         "digraph review {",
         'graph [rankdir="LR", bgcolor="transparent", pad="0.25", '
-        'nodesep="0.38", ranksep="0.62", splines="ortho"];',
+        f'nodesep="0.38", ranksep="0.62", splines="{spline}"];',
         'node [shape="box", style="rounded,filled", fontname="Arial", fontsize="12", '
         'margin="0.16,0.10", color="#8fb2ee", fillcolor="#ffffff", fontcolor="#222222"];',
         'edge [fontname="Arial", fontsize="10", color="#8b9098", '
@@ -765,6 +772,7 @@ def _context_node(node: JsonObject, edges: list[JsonObject], verified_ids: set[s
             "line": _object(_object(first_anchor["range"], "range")["start"], "start")["line"],
         },
         "verified": node_id in verified_ids,
+        "coverage": details.get("coverage") if isinstance(details.get("coverage"), dict) else None,
         "relations": sum(node_id in {edge.get("sourceId"), edge.get("targetId")} for edge in edges),
     }
 
