@@ -31,14 +31,23 @@ def revision_change_context(base: JsonObject | None, document: JsonObject) -> Js
     node_ids, edge_ids = changed_ids(base, document)
     graph = cast(JsonObject, document["graph"])
     nodes = cast(list[JsonObject], graph["nodes"])
+    scenario_node_ids = {str(node["id"]) for node in nodes if node.get("kind") == "Scenario"}
+    scenario_ids = {
+        str(node["id"])
+        for node in nodes
+        if node.get("id") in node_ids and node.get("kind") == "Scenario"
+    }
+    scenario_ids.update(
+        str(edge[endpoint])
+        for edge in cast(list[JsonObject], graph["edges"])
+        if edge.get("id") in edge_ids
+        for endpoint in ("sourceId", "targetId")
+        if edge.get(endpoint) in scenario_node_ids
+    )
     return {
         "changedNodeIds": sorted(node_ids),
         "changedEdgeIds": sorted(edge_ids),
-        "changedScenarioIds": sorted(
-            str(node["id"])
-            for node in nodes
-            if node.get("id") in node_ids and node.get("kind") == "Scenario"
-        ),
+        "changedScenarioIds": sorted(scenario_ids),
     }
 
 
@@ -333,6 +342,24 @@ class ReviewService:
     async def approve_and_start(self, revision_id: str, content_hash: str) -> str:
         run_id, agent_run_id, document = await asyncio.to_thread(
             self.store.approve_and_create_run, revision_id, content_hash
+        )
+        revision = cast(JsonObject, document["revision"])
+        context: JsonObject = {
+            "agentRunId": agent_run_id,
+            "implementationRunId": run_id,
+            "task": "IMPLEMENTATION",
+            "approvedRevisionId": revision["id"],
+            "approvedContentHash": revision["contentHash"],
+            "expectedFinalStatus": ["COMPLETED", "NEEDS_INPUT"],
+            **(await self._revision_change_context(run_id, document)),
+        }
+        prompt = await self._record_prompt(agent_run_id, "IMPLEMENTATION", context)
+        self._start(self._run_agent("IMPLEMENTATION", agent_run_id, prompt, run_id))
+        return run_id
+
+    async def retry_delivery(self, revision_id: str, content_hash: str) -> str:
+        run_id, agent_run_id, document = await asyncio.to_thread(
+            self.store.retry_delivery, revision_id, content_hash
         )
         revision = cast(JsonObject, document["revision"])
         context: JsonObject = {

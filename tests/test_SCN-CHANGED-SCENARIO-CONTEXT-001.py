@@ -7,7 +7,7 @@ from typing import cast
 
 from app.graph import JsonObject
 from app.prompt import Prompt
-from app.service import ReviewService
+from app.service import ReviewService, revision_change_context
 
 
 class _差异仓库:
@@ -112,3 +112,35 @@ def test_SCN_CHANGED_SCENARIO_CONTEXT_001_实现与Review注入相同稳定差�
     for key, value in expected.items():
         assert implementation[key] == value
         assert semantic_review[key] == value
+
+
+def test_SCN_CHANGED_SCENARIO_CONTEXT_001_仅变化关系仍保留场景证据上下文() -> None:
+    base: JsonObject = {
+        "revision": {"id": "REV-BASE"},
+        "graph": {
+            "nodes": [
+                {"id": "SCN-A", "kind": "Scenario"},
+                {"id": "DESIGN-A", "kind": "Component"},
+            ],
+            "edges": [],
+        },
+    }
+    current: JsonObject = {
+        "revision": {"id": "REV-CURRENT", "baseRevisionId": "REV-BASE"},
+        "graph": {
+            "nodes": base["graph"]["nodes"],
+            "edges": [
+                {
+                    "id": "EDGE-A",
+                    "kind": "realized_by",
+                    "sourceId": "SCN-A",
+                    "targetId": "DESIGN-A",
+                }
+            ],
+        },
+    }
+
+    context = revision_change_context(base, current)
+    assert context["changedNodeIds"] == []
+    assert context["changedEdgeIds"] == ["EDGE-A"]
+    assert context["changedScenarioIds"] == ["SCN-A"]

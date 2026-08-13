@@ -1172,55 +1172,6 @@
         "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-CODEX-RUNNER",
         "targetId": "DESIGN-CONFIGURATION-PROMPT-CATALOG"
-      },
-      {
-        "id": "EDGE-FLOW-SCN-DELIVERY-RETRY",
-        "kind": "contains",
-        "source": "DECLARED",
-        "sourceId": "FLOW-REQUIREMENT-TO-DEVELOPMENT",
-        "targetId": "SCN-DELIVERY-RETRY-001"
-      },
-      {
-        "id": "EDGE-SCN-DELIVERY-RETRY-ACTION",
-        "kind": "contains",
-        "source": "DECLARED",
-        "sourceId": "SCN-DELIVERY-RETRY-001",
-        "targetId": "ACTION-RETRY-AUTO-DELIVERY"
-      },
-      {
-        "id": "EDGE-RETRY-ACTION-SCREEN",
-        "kind": "realized_by",
-        "source": "INFERRED",
-        "sourceId": "ACTION-RETRY-AUTO-DELIVERY",
-        "targetId": "DESIGN-SCREEN-CONVERSATION-GRAPH"
-      },
-      {
-        "id": "EDGE-RETRY-ACTION-INTERFACE",
-        "kind": "realized_by",
-        "source": "INFERRED",
-        "sourceId": "ACTION-RETRY-AUTO-DELIVERY",
-        "targetId": "DESIGN-INTERFACE-RETRY-DELIVERY"
-      },
-      {
-        "id": "EDGE-RETRY-INTERFACE-COORDINATOR",
-        "kind": "calls",
-        "source": "INFERRED",
-        "sourceId": "DESIGN-INTERFACE-RETRY-DELIVERY",
-        "targetId": "DESIGN-COMPONENT-REQUIREMENT-COORDINATOR"
-      },
-      {
-        "id": "EDGE-RETRY-INTERFACE-RUN",
-        "kind": "creates",
-        "source": "INFERRED",
-        "sourceId": "DESIGN-INTERFACE-RETRY-DELIVERY",
-        "targetId": "DESIGN-ENTITY-IMPLEMENTATION-RUN"
-      },
-      {
-        "id": "EDGE-SCN-DELIVERY-RETRY-INTERFACE",
-        "kind": "realized_by",
-        "source": "INFERRED",
-        "sourceId": "SCN-DELIVERY-RETRY-001",
-        "targetId": "DESIGN-INTERFACE-RETRY-DELIVERY"
       }
     ],
     "entryNodeIds": [
@@ -2550,82 +2501,16 @@
         "source": "INFERRED",
         "summary": "只读解析仓库已有的 coverage.py JSON 或 LCOV 产物，把命中行投影为函数级 OBSERVED 测试证据；缺少产物时返回未知状态。",
         "title": "测试覆盖率导入器"
-      },
-      {
-        "details": {
-          "given": [
-            "当前统一图 revision 状态为 APPROVED",
-            "需求操作状态为 IDLE",
-            "该 revision 的最新 implementation run 状态为 FAILED"
-          ],
-          "then": [
-            "系统针对同一 revision ID 与 contentHash 创建新的独立 implementation run 和 Agent run",
-            "系统从新的隔离 worktree 重新执行开发、固定测试、语义 Review 与合并",
-            "系统不得修改或重新批准统一图，也不得复用旧 worktree、测试证据、Review 结论或运行状态",
-            "旧失败运行保持不变并可供审计",
-            "最新运行状态为 BLOCKED、NEEDS_INPUT、PENDING、RUNNING、TESTING、VERIFIED、REVIEWING、REVIEW_PASSED 或 MERGING 时不显示或拒绝重试"
-          ],
-          "when": [
-            "页面显示“重新自动交付”，用户点击并明确确认"
-          ]
-        },
-        "id": "SCN-DELIVERY-RETRY-001",
-        "kind": "Scenario",
-        "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "仅对当前已批准 revision 的最新失败实现运行发起全新、相互隔离的自动交付重试，并完整保留旧运行审计。",
-        "title": "失败后重新自动交付"
-      },
-      {
-        "details": {
-          "confirmation": "必须由用户点击并确认",
-          "forbiddenStates": [
-            "BLOCKED",
-            "NEEDS_INPUT",
-            "PENDING",
-            "RUNNING",
-            "TESTING",
-            "VERIFIED",
-            "REVIEWING",
-            "REVIEW_PASSED",
-            "MERGING"
-          ],
-          "precondition": "revision=APPROVED、需求操作=IDLE、最新 implementation run=FAILED"
-        },
-        "id": "ACTION-RETRY-AUTO-DELIVERY",
-        "kind": "Action",
-        "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "用户在满足重试前提时确认对同一批准 revision 创建全新的自动交付运行。",
-        "title": "确认重新自动交付"
-      },
-      {
-        "details": {
-          "input": [
-            "revisionId",
-            "contentHash",
-            "用户确认"
-          ],
-          "method": "POST",
-          "path": "/api/revision/{id}/retry-delivery",
-          "rule": "服务端重新校验所有前提，不接受客户端提供旧 run 的证据、Review 或 worktree 作为可信输入"
-        },
-        "id": "DESIGN-INTERFACE-RETRY-DELIVERY",
-        "kind": "Interface",
-        "layer": "design",
-        "source": "INFERRED",
-        "summary": "校验当前批准 revision、contentHash、需求空闲状态和最新失败运行后，原子创建新的 implementation run 与 Agent run。",
-        "title": "重新启动失败的自动交付"
       }
     ]
   },
   "modelId": "MODEL-REVIEW-TOOL",
   "revision": {
-    "id": "REV-REVIEW-TOOL-014",
-    "baseRevisionId": "REV-REVIEW-TOOL-013",
-    "status": "APPROVED",
-    "approvable": false,
-    "contentHash": "70efef80af72a9996d57f729c16828d78ff8343fd72630f7f747d1bc9a1a43aa"
+    "approvable": true,
+    "baseRevisionId": "REV-REVIEW-TOOL-012",
+    "contentHash": "8eab4706e6351d2a029845922d1796a8058b5bf4b3715e5603cd85339b5cef87",
+    "id": "REV-REVIEW-TOOL-013",
+    "status": "CANDIDATE"
   },
   "schemaVersion": 2,
   "title": "通过统一交互图驱动需求与开发"

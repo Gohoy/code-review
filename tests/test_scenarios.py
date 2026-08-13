@@ -793,7 +793,8 @@ def test_启动时沿同一revision链加载内置候选(tmp_path: Path, scenari
     approved = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-008.json")
     base = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-009.json")
     candidate = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-010.json")
-    stale = copy.deepcopy(seed())
+    stale = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-013.json")
+    stale = copy.deepcopy(stale)
     stale_graph = cast(JsonObject, stale["graph"])
     stale_nodes = cast(list[JsonObject], stale_graph["nodes"])
     stale_nodes[0]["summary"] = "过期候选内容"
@@ -802,9 +803,10 @@ def test_启动时沿同一revision链加载内置候选(tmp_path: Path, scenari
     store.initialize(stale, (base, candidate))
     previous = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-011.json")
     current_base = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-012.json")
-    store.initialize(seed(), (base, candidate, previous, current_base))
+    latest_base = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-013.json")
+    store.initialize(seed(), (base, candidate, previous, current_base, latest_base))
     current = store.state()["revision"]["revision"]
-    assert current["id"] == "REV-REVIEW-TOOL-013"
+    assert current["id"] == seed()["revision"]["id"]
     assert current["contentHash"] == seed()["revision"]["contentHash"]
     assert scenario_id.startswith("SCN-")
 

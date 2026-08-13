@@ -111,6 +111,16 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
         run_id = await service.approve_and_start(request.path_params["revision_id"], content_hash)
         return JSONResponse({"runId": run_id, "status": "PENDING"}, status_code=202)
 
+    async def retry_delivery(request: Request) -> JSONResponse:
+        body = await _body(request)
+        content_hash = body.get("contentHash")
+        if not isinstance(content_hash, str):
+            raise GraphError("contentHash 必须是字符串")
+        if body.get("confirmed") is not True:
+            raise GraphError("重新自动交付必须由用户明确确认")
+        run_id = await service.retry_delivery(request.path_params["revision_id"], content_hash)
+        return JSONResponse({"runId": run_id, "status": "PENDING"}, status_code=202)
+
     async def expected_error(_: Request, error: Exception) -> JSONResponse:
         return JSONResponse({"error": str(error)}, status_code=409)
 
@@ -129,6 +139,11 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
         Route(
             "/api/revision/{revision_id:str}/approve-and-start",
             approve,
+            methods=["POST"],
+        ),
+        Route(
+            "/api/revision/{revision_id:str}/retry-delivery",
+            retry_delivery,
             methods=["POST"],
         ),
         Mount("/", StaticFiles(directory=web_dir, html=True, check_dir=False), name="web"),

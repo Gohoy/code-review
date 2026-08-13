@@ -765,6 +765,70 @@ class Store:
             )
             return run_id, agent_run_id, cast(JsonObject, approved)
 
+    def retry_delivery(self, revision_id: str, content_hash: str) -> tuple[str, str, JsonObject]:
+        """为当前批准 revision 的最新失败运行创建独立重试。"""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            requirement = connection.execute(
+                "SELECT * FROM requirement WHERE id = ?", (REQUIREMENT_ID,)
+            ).fetchone()
+            if requirement is None or requirement["operation_status"] != "IDLE":
+                raise StoreError("当前需求操作未空闲，不能重新自动交付")
+            repository = connection.execute(
+                "SELECT current_revision_id FROM repository WHERE id = ?", (REPOSITORY_ID,)
+            ).fetchone()
+            if repository is None or repository["current_revision_id"] != revision_id:
+                raise StoreError("页面 revision 已过期，请刷新后重试")
+            row = connection.execute(
+                "SELECT * FROM revision WHERE id = ?", (revision_id,)
+            ).fetchone()
+            if row is None or row["status"] != "APPROVED" or row["content_hash"] != content_hash:
+                raise StoreError("批准 revision ID 或内容哈希不匹配")
+            latest = connection.execute(
+                """
+                SELECT * FROM implementation_run
+                WHERE requirement_id = ? AND revision_id = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (REQUIREMENT_ID, revision_id),
+            ).fetchone()
+            if latest is None or latest["status"] != "FAILED":
+                raise StoreError("仅可重试当前批准 revision 的最新失败运行")
+
+            document = self._revision_row(row)
+            validate_document(document, self.graph_schema)
+            run_id = f"RUN-{uuid.uuid4().hex.upper()}"
+            agent_run_id = f"AGENT-{uuid.uuid4().hex.upper()}"
+            now = _now()
+            connection.execute(
+                """
+                INSERT INTO implementation_run (
+                    id, requirement_id, revision_id, status, created_at, updated_at
+                ) VALUES (?, ?, ?, 'PENDING', ?, ?)
+                """,
+                (run_id, REQUIREMENT_ID, revision_id, now, now),
+            )
+            connection.execute(
+                """
+                INSERT INTO agent_run (
+                    id, requirement_id, task, revision_id, implementation_run_id,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, 'IMPLEMENTATION', ?, ?, 'RUNNING', ?, ?)
+                """,
+                (agent_run_id, REQUIREMENT_ID, revision_id, run_id, now, now),
+            )
+            connection.execute(
+                """
+                UPDATE requirement
+                SET operation_status = 'AGENT_RUNNING', status = 'DEVELOPING',
+                    last_error = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (now, REQUIREMENT_ID),
+            )
+            return run_id, agent_run_id, document
+
     def begin_review_agent(self, run_id: str) -> tuple[str, JsonObject]:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")

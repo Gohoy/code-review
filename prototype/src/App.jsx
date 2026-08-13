@@ -515,6 +515,30 @@ export function ReviewApp() {
     });
   }
 
+  function retryDelivery() {
+    modal.confirm({
+      title: "重新自动交付当前需求？",
+      icon: <InfoCircleOutlined />,
+      content: `将保留失败记录，并针对 ${revision.id} 从全新隔离 Worktree 重新开发、验证和合并。`,
+      okText: "确认重新自动交付",
+      cancelText: "取消",
+      async onOk() {
+        try {
+          await request(`/api/revision/${revision.id}/retry-delivery`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contentHash: revision.contentHash, confirmed: true }),
+          });
+          toast.success("已创建新的自动交付运行");
+          await refresh();
+        } catch (error) {
+          toast.error(error.message);
+          throw error;
+        }
+      },
+    });
+  }
+
   if (!state) return <Spin fullscreen description="正在读取统一图…" />;
 
   const approvalErrors = state.approvalErrors || [];
@@ -522,6 +546,10 @@ export function ReviewApp() {
     && revision.approvable
     && approvalErrors.length === 0
     && state.requirement.operationStatus === "IDLE";
+  const canRetry = revision?.status === "APPROVED"
+    && state.requirement.operationStatus === "IDLE"
+    && state.implementationRun?.revisionId === revision.id
+    && state.implementationRun?.status === "FAILED";
   const unavailable = Object.entries(state.dependencies || {})
     .filter(([, value]) => String(value).startsWith("不可用"));
   const conversation = <Conversation state={state} draft={draft} setDraft={setDraft} sending={sending} onSubmit={submit} inputRef={inputRef} open={conversationOpen} />;
@@ -623,6 +651,7 @@ export function ReviewApp() {
             </Space>
             <Space wrap>
               <Button type="text" onClick={discuss}>继续讨论</Button>
+              {canRetry && <Button type="primary" danger size="large" onClick={retryDelivery}>重新自动交付</Button>}
               <Button type="primary" size="large" disabled={!canApprove} onClick={approve}>批准并自动交付</Button>
             </Space>
           </Flex>
