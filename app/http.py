@@ -41,6 +41,12 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
         svg = await service.graph_svg(layers, focus_id)
         return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
+    async def requirement_context(request: Request) -> JSONResponse:
+        return JSONResponse(
+            await service.requirement_context(request.path_params["focus_id"]),
+            headers={"Cache-Control": "no-store"},
+        )
+
     async def message(request: Request) -> JSONResponse:
         body = await _body(request)
         content = body.get("content")
@@ -68,6 +74,7 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
         Route("/healthz", health),
         Route("/api/state", state),
         Route("/api/graph.svg", graph),
+        Route("/api/requirement/{focus_id:str}/context", requirement_context),
         Route("/api/message", message, methods=["POST"]),
         Route(
             "/api/revision/{revision_id:str}/approve-and-start",

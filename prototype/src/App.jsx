@@ -3,6 +3,7 @@ import {
   Alert,
   Avatar,
   Button,
+  Collapse,
   Descriptions,
   Divider,
   Drawer,
@@ -19,7 +20,9 @@ import {
 } from "antd";
 import {
   CheckCircleOutlined,
+  CodeOutlined,
   CommentOutlined,
+  FullscreenOutlined,
   InfoCircleOutlined,
   MenuOutlined,
   MinusOutlined,
@@ -45,6 +48,13 @@ const runStatusTitles = {
   COMPLETED: "已完成",
   NEEDS_INPUT: "需要补充信息",
   FAILED: "失败",
+};
+const sourceTitles = {
+  DECLARED: "已声明需求",
+  DERIVED: "静态推导",
+  OBSERVED: "运行观察",
+  INFERRED: "AI 推断",
+  UNRESOLVED: "待确认",
 };
 
 async function request(url, options) {
@@ -115,7 +125,7 @@ function Conversation({ state, draft, setDraft, sending, onSubmit, inputRef }) {
   );
 }
 
-function Inspector({ node, graph, changedNodeIds }) {
+function Inspector({ node, graph, changedNodeIds, context, contextLoading, codeOpen, setCodeOpen }) {
   if (!node) return <Empty description="选择图中节点查看详情" />;
   const edges = graph?.edges?.filter(
     (edge) => edge.sourceId === node.id || edge.targetId === node.id,
@@ -127,23 +137,75 @@ function Inspector({ node, graph, changedNodeIds }) {
       <ul>{value.map((item) => <li key={item}>{item}</li>)}</ul>
     ) : typeof value === "object" ? JSON.stringify(value) : String(value),
   }));
+  const isRequirement = node.layer === "requirement";
+  const codePath = context?.codePath || [];
+  const scenarioCount = context?.scenarios?.length || (node.kind === "Scenario" ? 1 : 0);
+  const codeChain = codePath.length ? (
+    <div className="code-chain">
+      {codePath.map((item, index) => (
+        <div className="code-step" key={item.id} style={{ marginInlineStart: Math.min(item.depth || 0, 4) * 10 }}>
+          <div className="code-step-number">{index + 1}</div>
+          <div className="code-step-content">
+            <Text strong className="code-name">{item.qualifiedName || item.title}</Text>
+            <Flex gap={6} wrap align="center">
+              {item.location && <Text type="secondary" className="code-location">{item.location.path}:{item.location.line}</Text>}
+              <Text type="secondary" className="code-summary">· {item.summary}</Text>
+            </Flex>
+            {item.caller && <Text type="secondary" className="code-caller">调用自 {item.caller}</Text>}
+            <Space size={4} wrap>
+              <Tag color={item.source === "DERIVED" ? "purple" : "default"}>{sourceTitles[item.source] || item.source}</Tag>
+              <Tag color={item.verified ? "success" : "default"}>{item.verified ? "测试覆盖" : "未关联测试"}</Tag>
+            </Space>
+          </div>
+        </div>
+      ))}
+      {context?.codeSnapshot && (
+        <Text type="secondary" className="snapshot-note">
+          代码快照 {context.codeSnapshot.commitSha.slice(0, 12)} · {context.codeSnapshot.extractors.map((item) => item.id).join("、")}
+        </Text>
+      )}
+    </div>
+  ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该需求尚无可确认的代码调用链" />;
   return (
     <div className="panel inspector-panel">
-      <Title level={4}>{node.title}</Title>
+      <Flex justify="space-between" align="center">
+        <Title level={4}>{isRequirement ? "需求概要" : "节点概要"}</Title>
+      </Flex>
+      <Title level={5} className="inspector-title">{node.title}</Title>
       <Space size={[4, 6]} wrap>
         <Tag color={node.layer === "design" ? "purple" : "blue"}>{layerTitles[node.layer]}</Tag>
-        <Tag>{node.kind}</Tag>
-        <Tag color={node.source === "UNRESOLVED" ? "error" : "default"}>{node.source}</Tag>
+        <Tag color={node.source === "UNRESOLVED" ? "error" : "default"}>{sourceTitles[node.source] || node.source}</Tag>
         {changedNodeIds.includes(node.id) && <Tag color="success">本次变化</Tag>}
       </Space>
       <Divider />
-      <Title level={5}>说明</Title>
       <Paragraph>{node.summary}</Paragraph>
       <Title level={5}>影响</Title>
-      <Paragraph>{edges.length} 条关联。</Paragraph>
-      {details.length > 0 && (
+      <Space separator={<Divider orientation="vertical" />}>
+        <Text><Text strong>{codePath.length}</Text> 个函数</Text>
+        <Text><Text strong>{scenarioCount}</Text> 个场景</Text>
+        <Text><Text strong>{edges.length}</Text> 条关系</Text>
+      </Space>
+      {isRequirement && (
+        <>
+          <Divider />
+          <Collapse
+            className="code-collapse"
+            bordered={false}
+            activeKey={codeOpen ? ["code"] : []}
+            onChange={(keys) => setCodeOpen(keys.includes("code"))}
+            items={[{
+              key: "code",
+              label: <Space><CodeOutlined />代码调用链</Space>,
+              extra: contextLoading ? <Spin size="small" /> : <Text type="secondary">{codePath.length} 个函数</Text>,
+              children: codeChain,
+            }]}
+          />
+        </>
+      )}
+      {!isRequirement && details.length > 0 && (
         <><Title level={5}>详细信息</Title><Descriptions column={1} size="small" items={details} /></>
       )}
+      <Divider />
       <Text type="secondary" copyable>{node.id}</Text>
     </div>
   );
@@ -151,17 +213,22 @@ function Inspector({ node, graph, changedNodeIds }) {
 
 export function ReviewApp() {
   const { message: toast, modal } = AntApp.useApp();
-  const desktop = Boolean(Grid.useBreakpoint().xl);
+  const breakpoints = Grid.useBreakpoint();
+  const desktop = Boolean(breakpoints.xl);
+  const wideDesktop = Boolean(breakpoints.xxl);
   const [state, setState] = useState(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [viewMode, setViewMode] = useState("changes");
-  const [layer, setLayer] = useState("all");
+  const [layer, setLayer] = useState("requirement");
   const [conversationOpen, setConversationOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [svg, setSvg] = useState("");
   const [graphError, setGraphError] = useState("");
+  const [requirementContext, setRequirementContext] = useState(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
   const [viewport, setViewport] = useState({ scale: 1, x: 0, y: 0 });
   const dragRef = useRef(null);
   const inputRef = useRef(null);
@@ -195,10 +262,24 @@ export function ReviewApp() {
   }, [nodes, selectedId]);
 
   useEffect(() => {
+    if (!selected || selected.layer !== "requirement") {
+      setRequirementContext(null);
+      return;
+    }
+    let active = true;
+    setContextLoading(true);
+    request(`/api/requirement/${encodeURIComponent(selected.id)}/context`)
+      .then((value) => { if (active) setRequirementContext(value); })
+      .catch((error) => { if (active) toast.error(error.message); })
+      .finally(() => { if (active) setContextLoading(false); });
+    return () => { active = false; };
+  }, [selected?.id, selected?.layer, revision?.id, toast]);
+
+  useEffect(() => setCodeOpen(false), [selected?.id]);
+
+  useEffect(() => {
     if (!revision) return;
-    const parameters = new URLSearchParams({
-      layers: layer === "all" ? "requirement,design" : layer,
-    });
+    const parameters = new URLSearchParams({ layers: layer });
     if (selectedId) parameters.set("focusId", selectedId);
     setGraphError("");
     fetch(`/api/graph.svg?${parameters}`)
@@ -247,6 +328,7 @@ export function ReviewApp() {
     if (!node?.id) return;
     event.preventDefault();
     setSelectedId(node.id);
+    setViewport((current) => ({ ...current, x: 0, y: 0 }));
     if (!desktop) setInspectorOpen(true);
   }
 
@@ -312,10 +394,11 @@ export function ReviewApp() {
   const unavailable = Object.entries(state.dependencies || {})
     .filter(([, value]) => String(value).startsWith("不可用"));
   const conversation = <Conversation state={state} draft={draft} setDraft={setDraft} sending={sending} onSubmit={submit} inputRef={inputRef} />;
-  const inspector = <Inspector node={selected} graph={graph} changedNodeIds={state.changedNodeIds || []} />;
+  const inspector = <Inspector node={selected} graph={graph} changedNodeIds={state.changedNodeIds || []} context={requirementContext} contextLoading={contextLoading} codeOpen={codeOpen} setCodeOpen={setCodeOpen} />;
 
   return (
     <Layout className="review-shell">
+      {desktop && <Sider width={wideDesktop ? 326 : 286} theme="light" className="side-panel">{conversation}</Sider>}
       <Layout className="main-column">
         <Header className="workspace-header">
           <Flex justify="space-between" align="flex-start" gap={12} wrap>
@@ -336,19 +419,16 @@ export function ReviewApp() {
               {!desktop && <Button icon={<MenuOutlined />} disabled={!selected} onClick={() => setInspectorOpen(true)}>详情</Button>}
             </Space>
           </Flex>
-          <Flex gap={12} wrap className="graph-controls">
+          <Flex justify="space-between" gap={12} wrap className="graph-controls">
             <Segmented value={viewMode} onChange={setViewMode} options={[
               { label: "仅看变化", value: "changes" }, { label: "显示上下文", value: "context" },
             ]} />
             <Segmented value={layer} onChange={setLayer} options={[
-              { label: "需求与设计", value: "all" }, { label: "需求", value: "requirement" },
+              { label: "需求", value: "requirement" },
               { label: "技术设计", value: "design" },
+              { label: "代码实现", value: "implementation" },
+              { label: "测试证据", value: "verification" },
             ]} />
-            <Space.Compact>
-              <Button aria-label="缩小统一图" icon={<MinusOutlined />} onClick={() => zoomBy(0.8)} />
-              <Button aria-label="复位统一图视图" icon={<ReloadOutlined />} onClick={() => setViewport({ scale: 1, x: 0, y: 0 })} />
-              <Button aria-label="放大统一图" icon={<PlusOutlined />} onClick={() => zoomBy(1.25)} />
-            </Space.Compact>
           </Flex>
         </Header>
         <Content className="graph-content">
@@ -358,7 +438,7 @@ export function ReviewApp() {
           ) : svg ? (
             <div
               ref={graphRef}
-              className={`graph-svg ${viewMode === "changes" ? "only-changes" : ""}`}
+              className={`graph-svg ${viewMode === "changes" ? "only-changes" : ""} ${selectedId ? "has-focus" : ""}`}
               onClick={activateNode}
               onKeyDown={activateNode}
               onPointerDown={beginPan}
@@ -366,6 +446,13 @@ export function ReviewApp() {
               onPointerUp={endPan}
               onPointerCancel={endPan}
             >
+              <Space.Compact className="canvas-tools">
+                <Button aria-label="适应画布" icon={<FullscreenOutlined />} onClick={() => setViewport({ scale: 1, x: 0, y: 0 })} />
+                <Button aria-label="缩小统一图" icon={<MinusOutlined />} onClick={() => zoomBy(0.8)} />
+                <Button aria-label="复位统一图视图" onClick={() => setViewport({ scale: 1, x: 0, y: 0 })}>{Math.round(viewport.scale * 100)}%</Button>
+                <Button aria-label="放大统一图" icon={<PlusOutlined />} onClick={() => zoomBy(1.25)} />
+                <Button aria-label="重新生成统一图" icon={<ReloadOutlined />} onClick={() => setViewport({ scale: 1, x: 0, y: 0 })} />
+              </Space.Compact>
               <div
                 className="graph-transform"
                 style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})` }}
@@ -387,7 +474,7 @@ export function ReviewApp() {
           </Flex>
         </Footer>
       </Layout>
-      {desktop && selected && <Sider width={300} theme="light" className="side-panel">{inspector}</Sider>}
+      {desktop && <Sider width={wideDesktop ? 360 : 350} theme="light" className="side-panel">{inspector}</Sider>}
       <Drawer title="需求对话" placement="left" size="min(92vw, 420px)" open={conversationOpen} onClose={() => setConversationOpen(false)}>{conversation}</Drawer>
       <Drawer title="节点详情" placement="right" size="min(92vw, 420px)" open={inspectorOpen} onClose={() => setInspectorOpen(false)}>{inspector}</Drawer>
     </Layout>

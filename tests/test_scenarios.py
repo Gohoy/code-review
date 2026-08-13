@@ -17,6 +17,7 @@ from app.graph import (
     changed_ids,
     graph_hash,
     load_object,
+    requirement_context,
     to_dot,
     validate_document,
 )
@@ -370,6 +371,120 @@ def test_统一画布投影稳定节点ID和分层(tmp_path: Path, scenario_id: 
     assert scenario_id.startswith("SCN-")
 
 
+@pytest.mark.parametrize(
+    "scenario_id", ["SCN-REQUIREMENT-CODE-DRILLDOWN-001"], ids=lambda value: value
+)
+def test_需求节点投影相关主流程和真实代码链(tmp_path: Path, scenario_id: str) -> None:
+    del tmp_path
+    document = seed()
+    graph = cast(JsonObject, document["graph"])
+    context = requirement_context(document, "SCN-LOCAL-AUTO-DELIVERY-001")
+    assert "ACTION-SUBMIT-REQUIREMENT" in context["pathNodeIds"]
+    assert "ACTION-MERGE-LOCAL" in context["pathNodeIds"]
+    assert [item["id"] for item in context["codePath"]] == [
+        "IMPL-ENTRY-HTTP-APPROVE",
+        "IMPL-SYMBOL-REVIEW-SERVICE-APPROVE",
+        "IMPL-SYMBOL-STORE-APPROVE",
+        "IMPL-SYMBOL-REVIEW-SERVICE-IMPLEMENT",
+        "IMPL-SYMBOL-RUNNER-VERIFY",
+        "IMPL-SYMBOL-RUNNER-MERGE",
+        "IMPL-SYMBOL-STORE-FINISH-RUN",
+    ]
+
+    nodes = cast(list[JsonObject], graph["nodes"])
+    edges = cast(list[JsonObject], graph["edges"])
+    nodes[:] = [node for node in nodes if node["layer"] != "implementation"]
+    edges[:] = [
+        edge
+        for edge in edges
+        if not edge["sourceId"].startswith("IMPL-") and not edge["targetId"].startswith("IMPL-")
+    ]
+    snapshot_id = "SNAPSHOT-REPOSITORY-LOCAL-A1B2C3D4"
+    anchor: JsonObject = {
+        "snapshotId": snapshot_id,
+        "path": "app/http.py",
+        "range": {
+            "start": {"line": 52, "column": 5},
+            "end": {"line": 59, "column": 1},
+        },
+        "extractorId": "PYTHON-AST",
+        "fingerprint": "a" * 64,
+    }
+    graph["codeSnapshots"] = [
+        {
+            "id": snapshot_id,
+            "repositoryId": "REPOSITORY-LOCAL",
+            "commitSha": "1" * 40,
+            "treeHash": "2" * 40,
+            "scanHash": "3" * 64,
+            "roots": ["app"],
+            "extractors": [{"id": "PYTHON-AST", "version": "1.0.0"}],
+        }
+    ]
+    nodes.extend(
+        [
+            {
+                "id": "IMPL-ENTRY-APPROVE",
+                "layer": "implementation",
+                "kind": "EntryPoint",
+                "title": "批准需求接口",
+                "summary": "接收批准请求。",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "anchors": [anchor],
+                "details": {"qualifiedName": "POST /api/revision/{id}/approve-and-start"},
+            },
+            {
+                "id": "IMPL-SYMBOL-APPROVE",
+                "layer": "implementation",
+                "kind": "Symbol",
+                "title": "批准并开始开发",
+                "summary": "冻结候选并启动开发。",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "anchors": [anchor],
+                "details": {"qualifiedName": "ReviewService.approve_and_start"},
+            },
+        ]
+    )
+    edges.extend(
+        [
+            {
+                "id": "EDGE-RULE-IMPLEMENTED-APPROVE",
+                "sourceId": "DESIGN-RULE-LOCAL-AUTO-DELIVERY",
+                "targetId": "IMPL-ENTRY-APPROVE",
+                "kind": "implemented_by",
+                "source": "DERIVED",
+            },
+            {
+                "id": "EDGE-ENTRY-CALLS-APPROVE",
+                "sourceId": "IMPL-ENTRY-APPROVE",
+                "targetId": "IMPL-SYMBOL-APPROVE",
+                "kind": "calls",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "anchors": [anchor],
+            },
+        ]
+    )
+    edges.append(
+        {
+            "id": "EDGE-MERGE-IMPLEMENTED-APPROVE",
+            "sourceId": "ACTION-MERGE-LOCAL",
+            "targetId": "IMPL-ENTRY-APPROVE",
+            "kind": "implemented_by",
+            "source": "DERIVED",
+        }
+    )
+    context = requirement_context(document, "ACTION-MERGE-LOCAL")
+    assert [item["id"] for item in context["codePath"]] == [
+        "IMPL-ENTRY-APPROVE",
+        "IMPL-SYMBOL-APPROVE",
+    ]
+    assert context["codePath"][0]["location"] == {"path": "app/http.py", "line": 52}
+    assert scenario_id.startswith("SCN-")
+
+
 @pytest.mark.parametrize("scenario_id", ["SCN-GRAPH-LIVE-001"], ids=lambda value: value)
 def test_仓库拥有统一图revision链(tmp_path: Path, scenario_id: str) -> None:
     async def scenario() -> None:
@@ -399,16 +514,17 @@ def test_启动时沿同一revision链加载内置候选(tmp_path: Path, scenari
     store = Store(tmp_path / "review.sqlite3", schema())
     approved = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-008.json")
     base = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-009.json")
+    candidate = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-010.json")
     stale = copy.deepcopy(seed())
     stale_graph = cast(JsonObject, stale["graph"])
     stale_nodes = cast(list[JsonObject], stale_graph["nodes"])
     stale_nodes[0]["summary"] = "过期候选内容"
     cast(JsonObject, stale["revision"])["contentHash"] = graph_hash(stale_graph)
     store.initialize(approved)
-    store.initialize(stale, (base,))
-    store.initialize(seed(), (base,))
+    store.initialize(stale, (base, candidate))
+    store.initialize(seed(), (base, candidate))
     current = store.state()["revision"]["revision"]
-    assert current["id"] == "REV-REVIEW-TOOL-010"
+    assert current["id"] == "REV-REVIEW-TOOL-011"
     assert current["contentHash"] == seed()["revision"]["contentHash"]
     assert scenario_id.startswith("SCN-")
 
@@ -420,6 +536,12 @@ def test_图代码契约拒绝无快照或锚点的实现事实(tmp_path: Path, 
     graph = cast(JsonObject, document["graph"])
     nodes = cast(list[JsonObject], graph["nodes"])
     edges = cast(list[JsonObject], graph["edges"])
+    nodes[:] = [node for node in nodes if node["layer"] != "implementation"]
+    edges[:] = [
+        edge
+        for edge in edges
+        if not edge["sourceId"].startswith("IMPL-") and not edge["targetId"].startswith("IMPL-")
+    ]
     snapshot_id = "SNAPSHOT-REPOSITORY-LOCAL-A1B2C3D4"
     anchor: JsonObject = {
         "snapshotId": snapshot_id,

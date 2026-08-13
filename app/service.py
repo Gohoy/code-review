@@ -10,6 +10,7 @@ from app.graph import (
     apply_diff,
     approval_errors,
     changed_ids,
+    requirement_context,
     to_dot,
 )
 from app.runner import Runner
@@ -69,6 +70,10 @@ class ReviewService:
         node_ids, edge_ids = changed_ids(base, document)
         dot_source = to_dot(document, layers, node_ids, edge_ids, focus_id)
         return await self.runner.render(dot_source)
+
+    async def requirement_context(self, focus_id: str) -> JsonObject:
+        state = await asyncio.to_thread(self.store.state)
+        return requirement_context(cast(JsonObject, state["revision"]), focus_id)
 
     async def submit_message(self, content: str) -> None:
         document, messages = await asyncio.to_thread(self.store.begin_modeling, content)

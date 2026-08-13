@@ -33,17 +33,32 @@ body { margin: 0; min-width: 320px; }
 }
 .graph-controls { margin-top: 20px; }
 .graph-content { min-height: 0; padding: 16px; overflow: hidden; background: #fafafa; }
-.graph-svg { width: 100%; height: 100%; min-height: 440px; overflow: hidden; touch-action: none; cursor: grab; background: #fff; border: 1px solid #eee; border-radius: 8px; }
+.graph-svg { position: relative; width: 100%; height: 100%; min-height: 440px; overflow: hidden; touch-action: none; cursor: grab; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; }
 .graph-svg:active { cursor: grabbing; }
-.graph-transform { width: max-content; padding: 16px; transform-origin: 0 0; }
-.graph-svg svg { display: block; width: 2000px; height: auto; }
+.graph-transform { position: absolute; top: 50%; left: 16px; width: max-content; transform-origin: 0 0; }
+.graph-transform > svg { display: block; width: 1450px; height: auto; transform: translateY(-50%); }
 .graph-svg g.node { cursor: pointer; transition: opacity 0.2s; }
 .graph-svg g.node:focus { outline: none; }
 .graph-svg g.node:focus polygon, .graph-svg g.node:focus path { stroke-width: 3px; }
 .graph-svg.only-changes g.node:not(.changed) { opacity: 0.42; }
+.graph-svg.has-focus g.node.dimmed, .graph-svg.has-focus g.edge.dimmed { opacity: 0.2; }
+.graph-svg.has-focus g.node.focused, .graph-svg.has-focus g.edge.focused { opacity: 1; }
 .graph-loading { min-height: 440px; }
 .inspector-panel { overflow: auto; }
 .inspector-panel ul { margin: 0; padding-left: 20px; }
+.inspector-title { margin: 18px 0 8px !important; }
+.canvas-tools { position: sticky; z-index: 2; top: 16px; left: 16px; margin: 16px; cursor: default; }
+.code-collapse { margin-inline: -12px; background: transparent; }
+.code-collapse .ant-collapse-header { padding-inline: 12px !important; font-weight: 600; }
+.code-collapse .ant-collapse-content-box { padding: 4px 12px 12px !important; }
+.code-chain { display: grid; }
+.code-step { position: relative; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; padding-bottom: 12px; }
+.code-step:not(:last-of-type)::after { position: absolute; top: 26px; bottom: 0; left: 12px; width: 1px; content: ""; background: #cbd5e1; }
+.code-step-number { z-index: 1; display: grid; width: 24px; height: 24px; place-items: center; color: #fff; font-size: 12px; background: #7550a5; border-radius: 50%; }
+.code-step-content { display: grid; min-width: 0; gap: 5px; padding: 1px 0 6px; }
+.code-name { overflow-wrap: anywhere; }
+.code-location, .code-summary, .code-caller { font-size: 12px; }
+.snapshot-note { padding: 8px 10px; font-size: 12px; background: #fafafa; border: 1px solid #eee; border-radius: 6px; }
 .approval-bar { padding: 16px 22px; background: #fff; border-top: 1px solid #e5e7eb; }
 
 @media (max-width: 1199px) {
@@ -53,8 +68,12 @@ body { margin: 0; min-width: 320px; }
   .ant-drawer-body .panel { padding: 0; }
 }
 
+@media (max-width: 1599px) {
+  .graph-transform > svg { width: 1300px; }
+}
+
 @media (max-width: 600px) {
   .workspace-header { min-height: 172px; }
-  .graph-svg svg { width: 1700px; }
+  .graph-transform > svg { width: 1400px; }
   .approval-bar .ant-btn-lg { width: 100%; }
 }

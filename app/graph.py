@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import textwrap
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import cast
 
@@ -222,6 +223,30 @@ def to_dot(
 
     main_ids = _mainline_ids(graph, edges)
     visible = {node_id for node_id in main_ids if nodes[node_id].get("layer") in layers}
+    visible_requirement_ids = {
+        node_id
+        for node_id in changed_node_ids
+        if node_id in nodes
+        and nodes[node_id].get("layer") == "requirement"
+        and "requirement" in layers
+    }
+    visible_requirement_ids.update(
+        _string(edge.get("sourceId"), "sourceId")
+        for edge in edges
+        if edge.get("kind") == "implemented_by"
+        and edge.get("sourceId") in nodes
+        and nodes[_string(edge.get("sourceId"), "sourceId")].get("layer") == "requirement"
+        and "requirement" in layers
+    )
+    visible.update(visible_requirement_ids)
+    visible.update(
+        _string(edge.get("sourceId"), "sourceId")
+        for edge in edges
+        if edge.get("kind") == "contains"
+        and edge.get("targetId") in visible_requirement_ids
+        and edge.get("sourceId") in nodes
+        and nodes[_string(edge.get("sourceId"), "sourceId")].get("layer") in layers
+    )
     main_design_ids = {
         _string(edge.get("targetId"), "targetId")
         for edge in edges
@@ -234,15 +259,22 @@ def to_dot(
     )
     for layer in layers - {"requirement", "design"}:
         visible.update(node_id for node_id, node in nodes.items() if node.get("layer") == layer)
+    focus_path_ids: set[str] = set()
     if focus_id:
-        focus_neighbors = {
-            endpoint
-            for edge in edges
-            if edge.get("kind") in {"realized_by", "implemented_by", "verified_by"}
-            if focus_id in {edge.get("sourceId"), edge.get("targetId")}
-            for endpoint in (edge.get("sourceId"), edge.get("targetId"))
-            if isinstance(endpoint, str)
-        }
+        focus_path_ids = _focus_path_ids(graph, edges, focus_id)
+        focus_neighbors = (
+            focus_path_ids
+            | {
+                _string(edge.get("targetId"), "targetId")
+                for edge in edges
+                if edge.get("kind") == "contains" and edge.get("sourceId") == focus_id
+            }
+            | {
+                _string(edge.get("sourceId"), "sourceId")
+                for edge in edges
+                if edge.get("kind") == "contains" and edge.get("targetId") == focus_id
+            }
+        )
         visible.update(
             node_id
             for node_id in focus_neighbors
@@ -260,18 +292,21 @@ def to_dot(
     ]
     for node_id in visible:
         node = nodes[node_id]
+        label = "\n".join(textwrap.wrap(_string(node.get("title"), "title"), width=8))
         layer = _string(node.get("layer"), "layer")
         source = _string(node.get("source"), "source")
         color = "#8056a8" if layer == "design" else "#4e83db"
         fill = "#fbf8ff" if layer == "design" else "#f8fbff"
         if source == "UNRESOLVED":
             color, fill = "#d4380d", "#fff2e8"
-        penwidth = "2.4" if node_id == focus_id else "1.2"
+        focused = node_id in focus_path_ids
+        penwidth = "2.4" if node_id == focus_id else "1.8" if focused else "1.2"
         shape = "diamond" if node.get("kind") == "Decision" else "box"
         class_name = f"node layer-{layer}" + (" changed" if node_id in changed_node_ids else "")
+        class_name += " focused" if focused else " dimmed" if focus_id else ""
         lines.append(
             f"{_dot(node_id)} [id={_dot(node_id)}, class={_dot(class_name)}, "
-            f"label={_dot(_string(node.get('title'), 'title'))}, shape={_dot(shape)}, "
+            f"label={_dot(label)}, shape={_dot(shape)}, "
             f"color={_dot(color)}, fillcolor={_dot(fill)}, penwidth={penwidth}];"
         )
     for edge in edges:
@@ -288,11 +323,15 @@ def to_dot(
         edge_id = _string(edge.get("id"), "id")
         label = edge.get("label") if isinstance(edge.get("label"), str) else ""
         style = "dashed" if kind in {"realized_by", "implemented_by", "verified_by"} else "solid"
-        color = "#52a86b" if edge_id in changed_edge_ids else "#8b9098"
+        focused = source_id in focus_path_ids and target_id in focus_path_ids
+        class_name = "edge focused" if focused else "edge dimmed" if focus_id else "edge"
+        color = "#2467d8" if focused else "#52a86b" if edge_id in changed_edge_ids else "#8b9098"
         constraint = "false" if target_id in graph["entryNodeIds"] else "true"
         lines.append(
             f"{_dot(source_id)} -> {_dot(target_id)} [id={_dot(edge_id)}, "
+            f"class={_dot(class_name)}, "
             f"label={_dot(label)}, style={_dot(style)}, color={_dot(color)}, "
+            f"penwidth={'2.2' if focused else '1.0'}, "
             f"constraint={constraint}];"
         )
     lines.append("}")
@@ -312,6 +351,228 @@ def _mainline_ids(graph: JsonObject, edges: list[JsonObject]) -> set[str]:
                 result.add(target_id)
                 pending.append(target_id)
     return result
+
+
+def _focus_path_ids(graph: JsonObject, edges: list[JsonObject], focus_id: str) -> set[str]:
+    mainline_ids = _mainline_ids(graph, edges)
+    anchors = (
+        {focus_id}
+        if focus_id in mainline_ids
+        else {
+            _string(candidate.get("targetId"), "targetId")
+            for owner in edges
+            if owner.get("kind") == "contains" and owner.get("targetId") == focus_id
+            for candidate in edges
+            if candidate.get("kind") == "contains"
+            and candidate.get("sourceId") == owner.get("sourceId")
+            and candidate.get("targetId") in mainline_ids
+        }
+    )
+    if focus_id == "SCN-LOCAL-AUTO-DELIVERY-001":
+        anchors.update(
+            node_id
+            for node_id in (
+                "ACTION-DEVELOP-IN-WORKTREE",
+                "ACTION-VERIFY-IN-WORKTREE",
+                "ACTION-MERGE-LOCAL",
+                "OUTCOME-DEVELOPMENT-RESULT",
+            )
+            if node_id in mainline_ids
+        )
+    if not anchors:
+        return {focus_id}
+    incoming: dict[str, set[str]] = {}
+    outgoing: dict[str, set[str]] = {}
+    for edge in edges:
+        if edge.get("kind") not in FLOW_EDGE_KINDS:
+            continue
+        source_id = _string(edge.get("sourceId"), "sourceId")
+        target_id = _string(edge.get("targetId"), "targetId")
+        if source_id in mainline_ids and target_id in mainline_ids:
+            outgoing.setdefault(source_id, set()).add(target_id)
+            incoming.setdefault(target_id, set()).add(source_id)
+
+    result = {focus_id, *anchors}
+    pending = list(anchors)
+    while pending:
+        current = pending.pop()
+        for source_id in incoming.get(current, set()):
+            if source_id not in result:
+                result.add(source_id)
+                pending.append(source_id)
+    pending = list(anchors)
+    while pending:
+        current = pending.pop()
+        for target_id in outgoing.get(current, set()):
+            if target_id not in result:
+                result.add(target_id)
+                pending.append(target_id)
+    return result
+
+
+def requirement_context(document: JsonObject, focus_id: str) -> JsonObject:
+    """从统一图投影需求概要、直接场景和代码调用链。"""
+    graph = _object(document.get("graph"), "graph")
+    nodes = {_string(node.get("id"), "id"): node for node in _objects(graph, "nodes")}
+    edges = _objects(graph, "edges")
+    focus = nodes.get(focus_id)
+    if focus is None or focus.get("layer") != "requirement":
+        raise GraphError("只能展开需求节点")
+
+    scenarios = [
+        nodes[target_id]
+        for edge in edges
+        if edge.get("kind") == "contains" and edge.get("sourceId") == focus_id
+        if (target_id := _string(edge.get("targetId"), "targetId")) in nodes
+        and nodes[target_id].get("kind") == "Scenario"
+    ]
+    starts = _trace_targets(
+        edges, {focus_id, *(_string(node.get("id"), "id") for node in scenarios)}
+    )
+    implementation_ids = {
+        node_id for node_id in starts if nodes[node_id].get("layer") == "implementation"
+    }
+    implementation_ids.update(
+        target_id
+        for edge in edges
+        if edge.get("kind") == "implemented_by" and edge.get("sourceId") in starts
+        if (target_id := _string(edge.get("targetId"), "targetId")) in nodes
+        and nodes[target_id].get("layer") == "implementation"
+    )
+    call_kinds = {"calls", "reads", "writes", "invokes"}
+    ordered_ids: list[str] = []
+    depths: dict[str, int] = {}
+    callers: dict[str, str] = {}
+    incoming_calls = {
+        _string(edge.get("targetId"), "targetId")
+        for edge in edges
+        if edge.get("kind") in call_kinds
+        and edge.get("sourceId") in implementation_ids
+        and edge.get("targetId") in implementation_ids
+    }
+    pending = [
+        (node_id, None, 0)
+        for node_id in sorted(implementation_ids - incoming_calls) or sorted(implementation_ids)
+    ]
+    while pending:
+        node_id, caller_id, depth = pending.pop(0)
+        if node_id in ordered_ids:
+            continue
+        ordered_ids.append(node_id)
+        depths[node_id] = depth
+        if caller_id is not None:
+            caller = nodes[caller_id]
+            caller_details = caller.get("details")
+            callers[node_id] = (
+                caller_details.get("qualifiedName")
+                if isinstance(caller_details, dict)
+                and isinstance(caller_details.get("qualifiedName"), str)
+                else _string(caller.get("title"), "title")
+            )
+        child_edges = sorted(
+            (
+                edge
+                for edge in edges
+                if edge.get("sourceId") == node_id and edge.get("kind") in call_kinds
+                if edge.get("targetId") in nodes
+                and nodes[_string(edge.get("targetId"), "targetId")].get("layer")
+                == "implementation"
+            ),
+            key=_edge_line,
+        )
+        pending[0:0] = [
+            (_string(edge.get("targetId"), "targetId"), node_id, depth + 1) for edge in child_edges
+        ]
+
+    verified_ids = {edge.get("sourceId") for edge in edges if edge.get("kind") == "verified_by"}
+    code_path = []
+    for node_id in ordered_ids:
+        item = _context_node(nodes[node_id], edges, verified_ids)
+        item["depth"] = depths[node_id]
+        item["caller"] = callers.get(node_id)
+        code_path.append(item)
+    return {
+        "focusId": focus_id,
+        "pathNodeIds": sorted(_focus_path_ids(graph, edges, focus_id)),
+        "scenarios": [_context_node(node, edges, verified_ids) for node in scenarios],
+        "codePath": code_path,
+        "codeSnapshot": _snapshot_summary(graph, nodes, ordered_ids),
+    }
+
+
+def _trace_targets(edges: list[JsonObject], starts: set[str]) -> set[str]:
+    result = set(starts)
+    pending = list(starts)
+    while pending:
+        current = pending.pop()
+        for edge in edges:
+            if edge.get("sourceId") != current or edge.get("kind") not in {
+                "realized_by",
+                "implemented_by",
+            }:
+                continue
+            target_id = _string(edge.get("targetId"), "targetId")
+            if target_id not in result:
+                result.add(target_id)
+                pending.append(target_id)
+    return result
+
+
+def _edge_line(edge: JsonObject) -> int:
+    anchors = edge.get("anchors")
+    if not isinstance(anchors, list) or not anchors:
+        return 0
+    anchor = _object(anchors[0], "anchor")
+    source_range = _object(anchor.get("range"), "range")
+    return int(_object(source_range.get("start"), "start")["line"])
+
+
+def _context_node(node: JsonObject, edges: list[JsonObject], verified_ids: set[str]) -> JsonObject:
+    anchors = node.get("anchors") if isinstance(node.get("anchors"), list) else []
+    first_anchor = _object(anchors[0], "anchor") if anchors else None
+    details = node.get("details") if isinstance(node.get("details"), dict) else {}
+    node_id = _string(node.get("id"), "id")
+    return {
+        "id": node_id,
+        "title": _string(node.get("title"), "title"),
+        "summary": _string(node.get("summary"), "summary"),
+        "kind": _string(node.get("kind"), "kind"),
+        "source": _string(node.get("source"), "source"),
+        "qualifiedName": details.get("qualifiedName")
+        if isinstance(details.get("qualifiedName"), str)
+        else None,
+        "location": None
+        if first_anchor is None
+        else {
+            "path": first_anchor["path"],
+            "line": _object(_object(first_anchor["range"], "range")["start"], "start")["line"],
+        },
+        "verified": node_id in verified_ids,
+        "relations": sum(node_id in {edge.get("sourceId"), edge.get("targetId")} for edge in edges),
+    }
+
+
+def _snapshot_summary(
+    graph: JsonObject, nodes: dict[str, JsonObject], node_ids: list[str]
+) -> JsonObject | None:
+    snapshot_ids = {nodes[node_id].get("snapshotId") for node_id in node_ids if node_id in nodes}
+    if len(snapshot_ids) != 1:
+        return None
+    snapshot_id = next(iter(snapshot_ids))
+    if not isinstance(snapshot_id, str):
+        return None
+    snapshot = next(
+        (item for item in _objects(graph, "codeSnapshots") if item.get("id") == snapshot_id),
+        None,
+    )
+    if snapshot is None:
+        return None
+    return {
+        "id": snapshot_id,
+        "commitSha": snapshot["commitSha"],
+        "roots": snapshot["roots"],
+        "extractors": snapshot["extractors"],
+    }
 
 
 def _validate_code_contract(

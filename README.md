@@ -3,7 +3,7 @@
 SDBP 的统一图模型驱动需求、技术设计、开发、测试与代码 Review 工具。
 
 第一里程碑已经实现：用户通过自然语言让本机 Codex 生成需求与技术设计图差异，明确批准后，系统才会在隔离 Git worktree 中启动开发。唯一数据源是
-[统一图模型](model/review-tool.json)。当前批准版本为 `REV-REVIEW-TOOL-009`；图与代码权威契约候选版本为 `REV-REVIEW-TOOL-010`。
+[统一图模型](model/review-tool.json)。当前批准版本为 `REV-REVIEW-TOOL-009`；图与代码权威契约候选版本为 `REV-REVIEW-TOOL-010`；需求下钻代码调用链候选版本为 `REV-REVIEW-TOOL-011`。
 
 ## 本地运行
 
