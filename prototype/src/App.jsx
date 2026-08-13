@@ -583,8 +583,8 @@ export function ReviewApp() {
             <div
               ref={graphRef}
               className={`graph-svg ${viewMode === "changes" ? "only-changes" : ""} ${selectedId ? "has-focus" : ""}`}
-              onClick={activateNode}
-              onKeyDown={activateNode}
+              onClickCapture={activateNode}
+              onKeyDownCapture={activateNode}
             >
               <TransformWrapper
                 ref={transformRef}

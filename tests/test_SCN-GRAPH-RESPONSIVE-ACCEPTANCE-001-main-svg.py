@@ -5,3 +5,9 @@ def test_SCN_GRAPH_RESPONSIVE_ACCEPTANCE_001_仅适配主图而非工具栏图�
     source = Path("prototype/src/App.jsx").read_text(encoding="utf-8")
     assert 'querySelector(".graph-transform > div > svg")' in source
     assert 'container?.querySelector("svg")' not in source
+
+
+def test_SCN_GRAPH_EXPLORE_001_节点选择先于画布手势处理() -> None:
+    source = Path("prototype/src/App.jsx").read_text(encoding="utf-8")
+    assert "onClickCapture={activateNode}" in source
+    assert "onKeyDownCapture={activateNode}" in source
