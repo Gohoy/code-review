@@ -361,9 +361,7 @@ export function ReviewApp() {
       Math.max(container.clientHeight - padding * 2, 1) / svgHeight,
       3,
     );
-    const x = (container.clientWidth - svgWidth * scale) / 2;
-    const y = (container.clientHeight - svgHeight * scale) / 2;
-    api.setTransform(x, y, scale, 200, "easeOut");
+    api.centerView(scale, 200, "easeOut");
   }, []);
 
   useEffect(() => {
