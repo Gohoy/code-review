@@ -59,6 +59,7 @@ const runStatusTitles = {
   BLOCKED: "已阻断",
   FAILED: "失败",
 };
+export const GRAPH_SCALE_LIMITS = { min: 0.75, max: 1 };
 
 export function graphProjectionKey(viewMode, direction) {
   return `${viewMode}:${direction}`;
@@ -74,16 +75,15 @@ export function observeGraphFit(fitView, element) {
 export function fitGraphView(container) {
   const svgElement = container?.querySelector(".graph-transform > div > svg");
   if (!container || !svgElement) return undefined;
-  // 不使用 svgElement.getBBox()：其 viewBox 坐标与 CSS 呈现尺寸不一致。
-  const svgWidth = Math.max(svgElement.clientWidth, 1);
-  const svgHeight = Math.max(svgElement.clientHeight, 1);
+  const viewBox = svgElement.viewBox?.baseVal;
+  const svgWidth = Math.max(svgElement.clientWidth || viewBox?.width || 0, 1);
+  const svgHeight = Math.max(svgElement.clientHeight || viewBox?.height || 0, 1);
   const padding = 32;
   const scale = Math.min(
     Math.max(container.clientWidth - padding * 2, 1) / svgWidth,
     Math.max(container.clientHeight - padding * 2, 1) / svgHeight,
-    3,
   );
-  return scale;
+  return Math.min(GRAPH_SCALE_LIMITS.max, Math.max(GRAPH_SCALE_LIMITS.min, scale));
 }
 
 function GraphControls({ fitView }) {
@@ -317,7 +317,7 @@ export function ReviewApp() {
   const breakpoints = Grid.useBreakpoint();
   const desktop = Boolean(breakpoints.xl);
   const wideDesktop = Boolean(breakpoints.xxl);
-  const direction = desktop ? "LR" : "TB";
+  const [direction, setDirection] = useState(desktop ? "LR" : "TB");
   const [state, setState] = useState(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -570,6 +570,9 @@ export function ReviewApp() {
               { label: "代码实现", value: "implementation" },
               { label: "测试证据", value: "verification" },
             ]} />
+            <Segmented aria-label="统一图布局方向" value={direction} onChange={setDirection} options={[
+              { label: "横向", value: "LR" }, { label: "纵向", value: "TB" },
+            ]} />
           </Flex>
         </Header>
         <Content className="graph-content">
@@ -586,8 +589,8 @@ export function ReviewApp() {
               <TransformWrapper
                 ref={transformRef}
                 initialScale={1}
-                minScale={0.2}
-                maxScale={3}
+                minScale={GRAPH_SCALE_LIMITS.min}
+                maxScale={GRAPH_SCALE_LIMITS.max}
                 limitToBounds={false}
                 smooth
                 wheel={{ step: 0.08, excluded: ["canvas-tools"] }}

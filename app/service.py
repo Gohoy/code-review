@@ -211,6 +211,8 @@ class ReviewService:
             direct_symbols: set[str] = set()
             if focus_id in module_ids:
                 expanded_modules.add(cast(str, focus_id))
+            elif focus_id in nodes_by_id and nodes_by_id[focus_id].get("kind") == "Symbol":
+                direct_symbols.add(cast(str, focus_id))
             elif focus_id:
                 related = {focus_id}
                 pending = [focus_id]
@@ -259,12 +261,14 @@ class ReviewService:
                 for edge in edges
                 if edge.get("kind") == "contains" and edge.get("sourceId") in expanded_modules
             }
+            visible_implementation_ids = expanded_symbols | expanded_modules
             graph["nodes"] = [
                 node
                 for node in nodes
                 if node.get("layer") != "implementation"
-                or node.get("kind") != "Symbol"
-                or node.get("id") in expanded_symbols
+                or node.get("kind") == "Repository"
+                or (not focus_id and node.get("kind") == "Module")
+                or node.get("id") in visible_implementation_ids
             ]
             retained_ids = {str(node["id"]) for node in cast(list[JsonObject], graph["nodes"])}
             graph["edges"] = [

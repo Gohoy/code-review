@@ -17,7 +17,7 @@ def test_SCN_GRAPH_RESPONSIVE_ACCEPTANCE_001_使用主图CSS像素适配全部�
     assert "[svg, layer, selectedId, fitView]" in source
     assert "new ResizeObserver(fitView)" in source
     assert "<GraphControls fitView={fitView} />" in source
-    assert "maxScale={3}" in source
+    assert "maxScale={GRAPH_SCALE_LIMITS.max}" in source
     assert "width: 1450px" not in styles
     assert "width: 1300px" not in styles
     assert ".graph-transform svg { width: auto" not in styles

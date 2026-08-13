@@ -101,7 +101,7 @@ try {
     cleanup();
   }
   assert.equal(centerCalls.length, 6);
-  assert.deepEqual(centerCalls[0], [0.736, 200, "easeOut"]);
+  assert.deepEqual(centerCalls[0], [0.75, 200, "easeOut"]);
   assert.equal(observedCount, 3);
   assert.equal(disconnectedCount, 3);
 } finally {
