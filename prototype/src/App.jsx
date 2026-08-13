@@ -570,7 +570,11 @@ export function ReviewApp() {
                 doubleClick={{ mode: "toggle", excluded: ["canvas-tools", "node"] }}
               >
                 <GraphControls fitView={fitView} />
-                <TransformComponent wrapperClass="graph-viewport" contentClass="graph-transform">
+                <TransformComponent
+                  wrapperClass="graph-viewport"
+                  wrapperStyle={{ overflow: "clip" }}
+                  contentClass="graph-transform"
+                >
                   <div dangerouslySetInnerHTML={{ __html: svg }} />
                 </TransformComponent>
               </TransformWrapper>
