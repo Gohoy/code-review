@@ -15,7 +15,7 @@ prompt/
 └── semantic-review.md
 ```
 
-- `common@1.0.0`：分层、来源等级、证据、不可信数据和人工批准边界。
+- `common@1.0.1`：分层、来源等级、证据、不可信数据和人工批准边界。
 - `repository-baseline@2.0.0`：先确定性同步存量函数、调用与覆盖证据，再建立用户主线、场景和语义映射。
 - `requirement-change@1.0.0`：理解对话，将需求作为现有主线的最小分支写入候选图。
 - `implementation@1.0.0`：在批准后的隔离 worktree 开发并调用固定测试。

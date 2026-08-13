@@ -429,12 +429,15 @@ def to_dot(
         and "requirement" in layers
     }
     visible_requirement_ids.update(
-        _string(edge.get("sourceId"), "sourceId")
-        for edge in edges
-        if edge.get("kind") == "implemented_by"
-        and edge.get("sourceId") in nodes
-        and nodes[_string(edge.get("sourceId"), "sourceId")].get("layer") == "requirement"
+        node_id
+        for node_id, node in nodes.items()
+        if node.get("layer") == "requirement"
         and "requirement" in layers
+        and any(
+            nodes[target_id].get("layer") == "implementation"
+            for target_id in _trace_targets(edges, {node_id})
+            if target_id in nodes
+        )
     )
     visible.update(visible_requirement_ids)
     visible.update(

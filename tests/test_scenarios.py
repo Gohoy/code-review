@@ -579,6 +579,29 @@ def test_统一画布投影稳定节点ID和分层(tmp_path: Path, scenario_id: 
 @pytest.mark.parametrize(
     "scenario_id", ["SCN-REQUIREMENT-CODE-DRILLDOWN-001"], ids=lambda value: value
 )
+def test_需求图展示经技术设计映射到代码的需求(tmp_path: Path, scenario_id: str) -> None:
+    del tmp_path
+    document = seed()
+    graph = cast(JsonObject, document["graph"])
+    cast(list[JsonObject], graph["edges"]).append(
+        {
+            "id": "EDGE-SCANNER-IMPLEMENTED-BY-VERIFY",
+            "sourceId": "DESIGN-COMPONENT-CODE-SCANNER",
+            "targetId": "IMPL-SYMBOL-RUNNER-VERIFY",
+            "kind": "implemented_by",
+            "source": "INFERRED",
+        }
+    )
+    source = to_dot(document, {"requirement"}, set(), set(), None)
+    assert 'id="SCN-REPOSITORY-BASELINE-001"' in source
+    context = requirement_context(document, "SCN-REPOSITORY-BASELINE-001")
+    assert context["codePath"][0]["id"] == "IMPL-SYMBOL-RUNNER-VERIFY"
+    assert scenario_id.startswith("SCN-")
+
+
+@pytest.mark.parametrize(
+    "scenario_id", ["SCN-REQUIREMENT-CODE-DRILLDOWN-001"], ids=lambda value: value
+)
 def test_需求节点投影相关主流程和真实代码链(tmp_path: Path, scenario_id: str) -> None:
     del tmp_path
     document = seed()
