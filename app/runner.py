@@ -341,6 +341,11 @@ class Runner:
                 "SDBP_REVIEW_AGENT_RUN_ID": agent_run_id,
                 "SDBP_REVIEW_IMPLEMENTATION_RUN_ID": implementation_run_id or "",
             }
+            mcp_environment_toml = (
+                "{"
+                + ",".join(f"{name}={json.dumps(value)}" for name, value in mcp_environment.items())
+                + "}"
+            )
             arguments = [
                 "codex",
                 "exec",
@@ -362,7 +367,7 @@ class Runner:
                 "-c",
                 'mcp_servers.sdbp_review.default_tools_approval_mode="approve"',
                 "-c",
-                f"mcp_servers.sdbp_review.env={json.dumps(mcp_environment)}",
+                f"mcp_servers.sdbp_review.env={mcp_environment_toml}",
                 "--skip-git-repo-check",
                 "--sandbox",
                 sandbox,
