@@ -334,6 +334,13 @@ class Runner:
         model_catalog = await self._bundled_model_catalog()
         with tempfile.TemporaryDirectory(dir=self.settings.data_dir) as temporary:
             output = Path(temporary) / "last-message.json"
+            mcp_environment = {
+                "SDBP_REVIEW_DATA_DIR": str(self.settings.data_dir),
+                "SDBP_REVIEW_REPOSITORY": str(self.settings.repository),
+                "SDBP_REVIEW_WORKTREE_ROOT": str(self.settings.worktree_root),
+                "SDBP_REVIEW_AGENT_RUN_ID": agent_run_id,
+                "SDBP_REVIEW_IMPLEMENTATION_RUN_ID": implementation_run_id or "",
+            }
             arguments = [
                 "codex",
                 "exec",
@@ -354,6 +361,8 @@ class Runner:
                 f"mcp_servers.sdbp_review.cwd={json.dumps(str(ROOT))}",
                 "-c",
                 'mcp_servers.sdbp_review.default_tools_approval_mode="approve"',
+                "-c",
+                f"mcp_servers.sdbp_review.env={json.dumps(mcp_environment)}",
                 "--skip-git-repo-check",
                 "--sandbox",
                 sandbox,
