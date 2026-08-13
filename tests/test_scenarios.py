@@ -16,8 +16,10 @@ from app.graph import (
     GraphError,
     JsonObject,
     apply_diff,
+    approval_errors,
     changed_ids,
     code_index_diff,
+    code_ownership,
     graph_hash,
     load_object,
     requirement_context,
@@ -134,7 +136,31 @@ class FakeRunner:
                 "functions": [function],
                 "errors": [],
             }
-            store.sync_code_index(agent_run_id, index)
+            synced = store.sync_code_index(agent_run_id, index)
+            module = next(
+                node
+                for node in cast(list[JsonObject], cast(JsonObject, synced["graph"])["nodes"])
+                if node["kind"] == "Module"
+            )
+            synced_revision = cast(JsonObject, synced["revision"])
+            store.create_candidate(
+                agent_run_id,
+                {
+                    "baseRevisionId": synced_revision["id"],
+                    "upsertNodes": [],
+                    "deleteNodeIds": [],
+                    "upsertEdges": [
+                        {
+                            "id": "EDGE-BASELINE-TEST-MODULE-OWNER",
+                            "sourceId": "DESIGN-COMPONENT-CODE-SCANNER",
+                            "targetId": module["id"],
+                            "kind": "implemented_by",
+                            "source": "INFERRED",
+                        }
+                    ],
+                    "deleteEdgeIds": [],
+                },
+            )
             return {
                 "status": "AWAITING_APPROVAL",
                 "reply": "代码基线候选已生成。",
@@ -821,6 +847,104 @@ def test_SCN_REPOSITORY_BASELINE_001_确定性同步函数调用和覆盖证据(
     assert sum(edge["kind"] == "calls" for edge in edges) == 1
     assert sum(node["kind"] == "Evidence" for node in nodes) == 1
     assert sum(edge["kind"] == "verified_by" for edge in edges) == 2
+
+
+def test_SCN_REPOSITORY_BASELINE_001_模块语义归属覆盖全部函数(tmp_path: Path) -> None:
+    (tmp_path / "service.py").write_text(
+        "def first():\n    return 1\n\ndef second():\n    return 2\n",
+        encoding="utf-8",
+    )
+    current = seed()
+    graph = cast(JsonObject, current["graph"])
+    index = index_repository(tmp_path, ["service.py"], "1" * 40, "2" * 40, graph)
+    base = with_code_snapshot(current, cast(JsonObject, index["snapshot"]))
+    first = apply_diff(base, code_index_diff(base, index), "REV-REVIEW-TOOL-998", schema())
+    assert approval_errors(first) == ["仍有 1 个源码模块没有需求或技术设计归属"]
+
+    first_revision = cast(JsonObject, first["revision"])
+    module = next(
+        node
+        for node in cast(list[JsonObject], cast(JsonObject, first["graph"])["nodes"])
+        if node["kind"] == "Module"
+    )
+    owned = apply_diff(
+        first,
+        {
+            "baseRevisionId": first_revision["id"],
+            "upsertNodes": [],
+            "deleteNodeIds": [],
+            "upsertEdges": [
+                {
+                    "id": "EDGE-SCANNER-IMPLEMENTS-SERVICE-MODULE",
+                    "sourceId": "DESIGN-COMPONENT-CODE-SCANNER",
+                    "targetId": module["id"],
+                    "kind": "implemented_by",
+                    "source": "INFERRED",
+                }
+            ],
+            "deleteEdgeIds": [],
+        },
+        "REV-REVIEW-TOOL-999",
+        schema(),
+    )
+    ownership = code_ownership(owned)
+    assert ownership["structurallyOwnedFunctionCount"] == 2
+    assert ownership["semanticallyOwnedFunctionCount"] == 2
+    assert ownership["inheritedFunctionCount"] == 2
+    assert ownership["unownedFunctionCount"] == 0
+    assert approval_errors(owned) == []
+
+    owned_graph = cast(JsonObject, owned["graph"])
+    refreshed = index_repository(tmp_path, ["service.py"], "3" * 40, "4" * 40, owned_graph)
+    assert refreshed["coverage"]["mappedFunctionCount"] == 2
+    refreshed_base = with_code_snapshot(owned, cast(JsonObject, refreshed["snapshot"]))
+    result = apply_diff(
+        refreshed_base,
+        code_index_diff(refreshed_base, refreshed),
+        "REV-REVIEW-TOOL-1000",
+        schema(),
+    )
+    assert code_ownership(result)["semanticallyOwnedFunctionCount"] == 2
+
+
+def test_SCN_FUNCTION_COVERAGE_001_需求继承模块下全部函数(tmp_path: Path) -> None:
+    (tmp_path / "service.py").write_text(
+        "def first():\n    second()\n\ndef second():\n    return 2\n",
+        encoding="utf-8",
+    )
+    current = seed()
+    graph = cast(JsonObject, current["graph"])
+    index = index_repository(tmp_path, ["service.py"], "1" * 40, "2" * 40, graph)
+    base = with_code_snapshot(current, cast(JsonObject, index["snapshot"]))
+    scanned = apply_diff(base, code_index_diff(base, index), "REV-REVIEW-TOOL-998", schema())
+    scanned_graph = cast(JsonObject, scanned["graph"])
+    module = next(
+        node for node in cast(list[JsonObject], scanned_graph["nodes"]) if node["kind"] == "Module"
+    )
+    revision = cast(JsonObject, scanned["revision"])
+    owned = apply_diff(
+        scanned,
+        {
+            "baseRevisionId": revision["id"],
+            "upsertNodes": [],
+            "deleteNodeIds": [],
+            "upsertEdges": [
+                {
+                    "id": "EDGE-SCANNER-IMPLEMENTS-SERVICE-MODULE",
+                    "sourceId": "DESIGN-COMPONENT-CODE-SCANNER",
+                    "targetId": module["id"],
+                    "kind": "implemented_by",
+                    "source": "INFERRED",
+                }
+            ],
+            "deleteEdgeIds": [],
+        },
+        "REV-REVIEW-TOOL-999",
+        schema(),
+    )
+
+    context = requirement_context(owned, "SCN-REPOSITORY-BASELINE-001")
+    assert {item["qualifiedName"] for item in context["codePath"]} == {"first", "second"}
 
 
 def test_SCN_REPOSITORY_BASELINE_001_刷新保留稳定函数语义映射(tmp_path: Path) -> None:

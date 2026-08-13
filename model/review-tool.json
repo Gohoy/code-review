@@ -2022,7 +2022,9 @@
           "input": "固定 Git commit、扫描根目录和提取器版本",
           "output": "代码快照、实现节点、技术关系、源码锚点和明确扫描缺口",
           "permission": "只读仓库；只能向新的候选 revision 写入 DERIVED 实现事实",
-          "rule": "相同 commit、范围、提取器版本和配置必须生成相同 scanHash"
+          "rule": "相同 commit、范围、提取器版本和配置必须生成相同 scanHash",
+          "semanticOwnership": "AI 为 Module 建立需求或设计的 implemented_by；函数继承模块归属，必要时可建立更精确的直接归属",
+          "structuralOwnership": "每个 Symbol 必须由 Module contains，Module 必须由 Repository contains"
         },
         "id": "DESIGN-COMPONENT-CODE-SCANNER",
         "kind": "Component",
@@ -2430,9 +2432,10 @@
           ],
           "then": [
             "系统创建固定 CodeSnapshot 并确定性写入每一个扫描到的函数节点",
+            "每个函数通过 Repository、Module 和 Symbol 包含关系获得结构归属，不得成为图外孤立代码",
             "系统写入能够唯一解析的函数调用关系并显式汇报未解析调用",
             "刷新时保留仍指向现存稳定函数 ID 的已确认语义映射",
-            "Agent 只为函数与需求或技术设计补充 INFERRED 关系",
+            "Agent 先为每个源码模块补充需求或技术设计的 INFERRED 语义归属，只有职责混合或关键入口才细化到函数",
             "结果作为候选 revision 等待用户批准"
           ],
           "when": [
@@ -2443,7 +2446,7 @@
         "kind": "Scenario",
         "layer": "requirement",
         "source": "DECLARED",
-        "summary": "用户从统一图页面启动只读基线任务，系统把固定 Git 快照中的全部项目函数和可解析调用关系写入候选图，再由 Agent 补充需求与设计的语义映射。",
+        "summary": "用户从统一图页面启动只读基线任务，系统把全部项目函数放入仓库与模块结构并写入可解析调用关系，再由 Agent 补充覆盖全部模块的需求与设计语义归属。",
         "title": "生成或刷新仓库代码基线"
       },
       {
@@ -2452,7 +2455,8 @@
             "仓库扫描已生成函数事实，测试工具可能生成 coverage.py JSON 或 LCOV 产物"
           ],
           "then": [
-            "页面显示函数总数、需求映射数、覆盖函数数和明确缺口",
+            "页面分别显示函数总数、结构归属数、语义归属数、覆盖函数数和明确缺口",
+            "模块语义归属会传递给其包含的函数，直接函数归属覆盖模块默认值",
             "覆盖率只来自 OBSERVED 测试产物，不存在产物时显示未知而不是零覆盖",
             "每个覆盖证据关联具体实现函数和固定代码快照"
           ],
@@ -2464,7 +2468,7 @@
         "kind": "Scenario",
         "layer": "requirement",
         "source": "DECLARED",
-        "summary": "代码节点展示需求映射与真实覆盖率证据，未映射、未覆盖或无法解析的函数保持可见，可作为 Review 和清理依据。",
+        "summary": "代码节点展示结构归属、可继承的需求语义归属与真实覆盖率证据；未归属、未覆盖或无法解析的函数保持可见，可作为 Review 和清理依据。",
         "title": "查看函数映射和测试覆盖情况"
       },
       {
@@ -2502,7 +2506,7 @@
   "revision": {
     "approvable": true,
     "baseRevisionId": "REV-REVIEW-TOOL-012",
-    "contentHash": "5024a53f2bcb91cdb5ba79a0cbc85474c44ffee9d510ce4933f5a4cdbaa275d6",
+    "contentHash": "12d837f73018d995acecca0fd21bc025256e6d02c394007ec3bac9004f5568bf",
     "id": "REV-REVIEW-TOOL-013",
     "status": "CANDIDATE"
   },

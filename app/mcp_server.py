@@ -11,7 +11,7 @@ from mcp.server.fastmcp import FastMCP
 
 from app.bootstrap import load_store
 from app.config import ROOT, Settings
-from app.graph import JsonObject, approval_errors, canonical_json, node_context
+from app.graph import JsonObject, approval_errors, canonical_json, code_ownership, node_context
 from app.indexer import index_repository
 from app.prompt import PromptCatalog
 from app.runner import VALIDATION_COMMANDS, Runner
@@ -173,6 +173,7 @@ async def repository_sync() -> JsonObject:
         return {
             "revision": revision,
             "coverage": index["coverage"],
+            "ownership": code_ownership(candidate),
             "errors": index["errors"],
         }
 

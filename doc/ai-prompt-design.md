@@ -16,10 +16,10 @@ prompt/
 ```
 
 - `common@1.0.1`：分层、来源等级、证据、不可信数据和人工批准边界。
-- `repository-baseline@2.0.0`：先确定性同步存量函数、调用与覆盖证据，再建立用户主线、场景和语义映射。
+- `repository-baseline@3.0.0`：先确定性同步存量函数、调用与覆盖证据，再为每个源码模块建立可继承语义归属。
 - `requirement-change@1.0.0`：理解对话，将需求作为现有主线的最小分支写入候选图。
-- `implementation@1.0.0`：在批准后的隔离 worktree 开发并调用固定测试。
-- `semantic-review@1.0.0`：独立只读检查批准图、代码 Diff 和测试证据，通过后调用本地合并。
+- `implementation@2.0.0`：在批准后的隔离 worktree 开发，保持函数直接或模块继承归属并调用固定测试。
+- `semantic-review@2.0.0`：独立只读检查批准图、代码 Diff、函数归属和测试证据，通过后调用本地合并。
 
 每次 `agent_run` 记录 Prompt ID、版本、Prompt 哈希、输入哈希和最终状态，不保存隐藏推理。
 
@@ -77,8 +77,8 @@ Service 只负责响应用户事件、启动任务 Prompt 和核对最终领域�
 - 每个函数提供固定 Git commit、tree hash、源码范围、指纹、原始调用和当前图映射。
 - 页面通过“生成/刷新代码基线”启动独立 `REPOSITORY_BASELINE` Agent，不把初始化伪装成普通对话。
 - coverage.py JSON 与 LCOV 只作为 `OBSERVED` 证据导入；没有产物时状态为 `UNKNOWN`，不伪报零覆盖。
-- 源码锚点与确定性调用是 `DERIVED`；函数对应哪个用户场景或技术设计由 Agent 标为 `INFERRED`。
-- 未映射函数是覆盖缺口，不自动等同于死代码；是否删除仍需场景、运行证据和 Review。
+- 源码锚点与确定性调用是 `DERIVED`；Module 对应哪个用户场景或技术设计由 Agent 标为 `INFERRED`，包含函数默认继承，直接函数关系用于细化。
+- 未归属函数是覆盖缺口并阻断基线批准，但不自动等同于死代码；是否删除仍需场景、运行证据和 Review。
 
 ## Prompt 变更规则
 

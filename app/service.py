@@ -10,6 +10,7 @@ from app.graph import (
     JsonObject,
     approval_errors,
     changed_ids,
+    code_ownership,
     requirement_context,
     to_dot,
 )
@@ -61,21 +62,20 @@ class ReviewService:
             for layer in ("requirement", "design", "implementation", "verification")
         }
         state["dependencies"] = self.dependencies
-        implementation = [node for node in nodes if node.get("layer") == "implementation"]
-        functions = [node for node in implementation if node.get("kind") == "Symbol"]
-        mapped_ids = {
-            edge.get("targetId")
-            for edge in cast(list[JsonObject], graph["edges"])
-            if edge.get("kind") == "implemented_by"
-        }
+        functions = [
+            node
+            for node in nodes
+            if node.get("layer") == "implementation" and node.get("kind") == "Symbol"
+        ]
+        ownership = code_ownership(document)
         coverage_values = [
             cast(JsonObject, node["details"]).get("coverage")
             for node in functions
             if isinstance(node.get("details"), dict)
         ]
         state["codeMetrics"] = {
-            "functionCount": len(functions),
-            "mappedFunctionCount": sum(node.get("id") in mapped_ids for node in functions),
+            **ownership,
+            "mappedFunctionCount": ownership["semanticallyOwnedFunctionCount"],
             "coveredFunctionCount": sum(
                 isinstance(value, dict) and value.get("status") == "COVERED"
                 for value in coverage_values

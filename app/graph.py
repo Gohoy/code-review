@@ -123,7 +123,74 @@ def approval_errors(document: JsonObject) -> list[str]:
     for node in nodes:
         if node.get("kind") == "Scenario" and node.get("id") not in realized_scenarios:
             errors.append(f"场景尚未关联技术设计：{node['id']}")
+    ownership = code_ownership(document)
+    if ownership["moduleCount"]:
+        structural_gap = ownership["functionCount"] - ownership["structurallyOwnedFunctionCount"]
+        if structural_gap:
+            errors.append(f"仍有 {structural_gap} 个函数没有源码模块结构归属")
+        if ownership["unownedModuleCount"]:
+            count = ownership["unownedModuleCount"]
+            errors.append(f"仍有 {count} 个源码模块没有需求或技术设计归属")
     return errors
+
+
+def code_ownership(document: JsonObject) -> JsonObject:
+    """统计函数的结构归属和可继承语义归属。"""
+    graph = _object(document.get("graph"), "graph")
+    nodes = {_string(node.get("id"), "id"): node for node in _objects(graph, "nodes")}
+    edges = _objects(graph, "edges")
+    function_ids = {
+        node_id
+        for node_id, node in nodes.items()
+        if node.get("layer") == "implementation" and node.get("kind") == "Symbol"
+    }
+    module_ids = {
+        node_id
+        for node_id, node in nodes.items()
+        if node.get("layer") == "implementation" and node.get("kind") == "Module"
+    }
+    function_modules = {
+        _string(edge.get("targetId"), "targetId"): _string(edge.get("sourceId"), "sourceId")
+        for edge in edges
+        if edge.get("kind") == "contains"
+        and edge.get("sourceId") in module_ids
+        and edge.get("targetId") in function_ids
+    }
+    semantic_targets = {
+        _string(edge.get("targetId"), "targetId")
+        for edge in edges
+        if edge.get("kind") == "implemented_by"
+    }
+    directly_owned = function_ids & semantic_targets
+    inherited = {
+        function_id
+        for function_id, module_id in function_modules.items()
+        if module_id in semantic_targets and function_id not in directly_owned
+    }
+    structurally_owned = function_ids & function_modules.keys()
+    function_counts = {
+        module_id: sum(owner_id == module_id for owner_id in function_modules.values())
+        for module_id in module_ids
+    }
+    return {
+        "functionCount": len(function_ids),
+        "structurallyOwnedFunctionCount": len(structurally_owned),
+        "semanticallyOwnedFunctionCount": len(directly_owned | inherited),
+        "directlyOwnedFunctionCount": len(directly_owned),
+        "inheritedFunctionCount": len(inherited),
+        "unownedFunctionCount": len(function_ids - directly_owned - inherited),
+        "moduleCount": len(module_ids),
+        "ownedModuleCount": len(module_ids & semantic_targets),
+        "unownedModuleCount": len(module_ids - semantic_targets),
+        "unownedModules": [
+            {
+                "id": module_id,
+                "path": _object(nodes[module_id].get("details"), "details")["path"],
+                "functionCount": function_counts[module_id],
+            }
+            for module_id in sorted(module_ids - semantic_targets)
+        ],
+    }
 
 
 def apply_diff(
@@ -206,10 +273,14 @@ def code_index_diff(current: JsonObject, index: JsonObject) -> JsonObject:
     }
     replaced_node_ids = previous_implementation_ids | previous_coverage_ids
     current_function_ids = {_string(function.get("id"), "function.id") for function in functions}
+    current_module_ids = {
+        _module_id(_string(file_fact.get("path"), "fileFact.path")) for file_fact in file_facts
+    }
     retained_mapping_edges = [
         copy.deepcopy(edge)
         for edge in _objects(graph, "edges")
-        if edge.get("kind") == "implemented_by" and edge.get("targetId") in current_function_ids
+        if edge.get("kind") == "implemented_by"
+        and edge.get("targetId") in current_function_ids | current_module_ids
     ]
     retained_mapping_ids = {_string(edge.get("id"), "edge.id") for edge in retained_mapping_edges}
     delete_edge_ids = [
@@ -649,6 +720,18 @@ def requirement_context(document: JsonObject, focus_id: str) -> JsonObject:
         if (target_id := _string(edge.get("targetId"), "targetId")) in nodes
         and nodes[target_id].get("layer") == "implementation"
     )
+    module_ids = {
+        node_id for node_id in implementation_ids if nodes[node_id].get("kind") == "Module"
+    }
+    implementation_ids.update(
+        _string(edge.get("targetId"), "targetId")
+        for edge in edges
+        if edge.get("kind") == "contains"
+        and edge.get("sourceId") in module_ids
+        and edge.get("targetId") in nodes
+        and nodes[_string(edge.get("targetId"), "targetId")].get("kind") == "Symbol"
+    )
+    implementation_ids -= module_ids
     call_kinds = {"calls", "reads", "writes", "invokes"}
     ordered_ids: list[str] = []
     depths: dict[str, int] = {}

@@ -9,7 +9,7 @@
 - `python -m app.mcp_server`：stdio MCP Server，提供代码基线同步、统一图、worktree、测试、Review 与合并能力。
 - SQLite 记录 `agent_run` 和 `tool_invocation`；页面展示 Agent 当前任务和 MCP 活动，不保存隐藏推理。
 
-当前候选行为模型是 `REV-REVIEW-TOOL-013`：页面可启动仓库基线任务，确定性同步全部 Python、JavaScript 和 TypeScript 函数、可解析调用关系与已有覆盖率证据；Agent 再补充需求和设计的语义映射。用户明确批准后才允许隔离开发和自动交付。
+当前候选行为模型是 `REV-REVIEW-TOOL-013`：页面可启动仓库基线任务，确定性同步全部 Python、JavaScript 和 TypeScript 函数、可解析调用关系与已有覆盖率证据；Agent 为每个源码模块补充可由函数继承的需求或设计归属。用户明确批准后才允许隔离开发和自动交付。
 
 ## 本地运行
 

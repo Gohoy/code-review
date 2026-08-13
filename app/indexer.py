@@ -372,6 +372,7 @@ def _graph_mappings(
 ]:
     graph_nodes: dict[tuple[str, str], list[str]] = {}
     mappings: dict[tuple[str, str], list[str]] = {}
+    modules_by_path: dict[str, str] = {}
     nodes = graph.get("nodes")
     if not isinstance(nodes, list):
         return graph_nodes, mappings
@@ -379,6 +380,12 @@ def _graph_mappings(
         if not isinstance(item, dict) or item.get("layer") != "implementation":
             continue
         details = item.get("details")
+        if item.get("kind") == "Module" and isinstance(details, dict):
+            path = details.get("path")
+            node_id = item.get("id")
+            if isinstance(path, str) and isinstance(node_id, str):
+                modules_by_path[path] = node_id
+            continue
         anchors = item.get("anchors")
         if not isinstance(details, dict) or not isinstance(anchors, list) or not anchors:
             continue
@@ -390,7 +397,7 @@ def _graph_mappings(
         node_id = item.get("id")
         if isinstance(path, str) and isinstance(node_id, str):
             graph_nodes.setdefault((path, qualified_name), []).append(node_id)
-    implementation_ids = {item for values in graph_nodes.values() for item in values}
+    sources_by_target: dict[str, list[str]] = {}
     for item in graph.get("edges", []):
         if not isinstance(item, dict) or item.get("kind") != "implemented_by":
             continue
@@ -398,11 +405,15 @@ def _graph_mappings(
         source_id = item.get("sourceId")
         if not isinstance(target_id, str) or not isinstance(source_id, str):
             continue
-        if target_id not in implementation_ids:
-            continue
-        for key, values in graph_nodes.items():
-            if target_id in values:
-                mappings.setdefault(key, []).append(source_id)
+        sources_by_target.setdefault(target_id, []).append(source_id)
+    for key, function_ids in graph_nodes.items():
+        direct = {
+            source for node_id in function_ids for source in sources_by_target.get(node_id, [])
+        }
+        inherited = sources_by_target.get(modules_by_path.get(key[0], ""), [])
+        values = direct or set(inherited)
+        if values:
+            mappings[key] = sorted(values)
     return graph_nodes, mappings
 
 

@@ -535,7 +535,7 @@ export function ReviewApp() {
             <Space orientation="vertical" size={2}>
               <Text>层级计数：需求 {state.layerCounts.requirement} · 技术设计 {state.layerCounts.design} · 代码实现 {state.layerCounts.implementation} · 测试证据 {state.layerCounts.verification}</Text>
               <Text type="secondary">
-                函数 {state.codeMetrics?.functionCount || 0} · 已映射 {state.codeMetrics?.mappedFunctionCount || 0} · 覆盖率 {state.codeMetrics?.coverageStatus === "OBSERVED" ? `${state.codeMetrics.coveredFunctionCount} 已覆盖 / ${state.codeMetrics.uncoveredFunctionCount} 未覆盖` : "暂无真实产物"}
+                函数 {state.codeMetrics?.functionCount || 0} · 结构归属 {state.codeMetrics?.structurallyOwnedFunctionCount || 0} · 语义归属 {state.codeMetrics?.semanticallyOwnedFunctionCount || 0}（直接 {state.codeMetrics?.directlyOwnedFunctionCount || 0} / 继承 {state.codeMetrics?.inheritedFunctionCount || 0}） · 未归属 {state.codeMetrics?.unownedFunctionCount || 0} · 覆盖率 {state.codeMetrics?.coverageStatus === "OBSERVED" ? `${state.codeMetrics.coveredFunctionCount} 已覆盖 / ${state.codeMetrics.uncoveredFunctionCount} 未覆盖` : "暂无真实产物"}
               </Text>
               {state.implementationRun && <Text type="secondary" aria-live="polite">自动交付 {runStatusTitles[state.implementationRun.status] || state.implementationRun.status}：{state.implementationRun.summary || "等待执行"}</Text>}
             </Space>
