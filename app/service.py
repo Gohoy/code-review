@@ -136,12 +136,14 @@ class ReviewService:
             graph = cast(JsonObject, projection["graph"])
             nodes = cast(list[JsonObject], graph["nodes"])
             edges = cast(list[JsonObject], graph["edges"])
+            nodes_by_id = {str(node["id"]): node for node in nodes}
             module_ids = {
                 str(node["id"])
                 for node in nodes
                 if node.get("layer") == "implementation" and node.get("kind") == "Module"
             }
             expanded_modules: set[str] = set()
+            direct_symbols: set[str] = set()
             if focus_id in module_ids:
                 expanded_modules.add(cast(str, focus_id))
             elif focus_id:
@@ -158,11 +160,36 @@ class ReviewService:
                         }:
                             continue
                         target_id = str(edge["targetId"])
+                        target = nodes_by_id.get(target_id)
+                        if (
+                            edge.get("kind") == "implemented_by"
+                            and target is not None
+                            and target.get("kind") == "Symbol"
+                        ):
+                            direct_symbols.add(target_id)
+                            continue
                         if target_id not in related:
                             related.add(target_id)
                             pending.append(target_id)
-                expanded_modules = module_ids & related
-            expanded_symbols = {
+                if direct_symbols:
+                    pending = list(direct_symbols)
+                    while pending:
+                        current = pending.pop()
+                        for edge in edges:
+                            if edge.get("sourceId") != current or edge.get("kind") not in {
+                                "calls",
+                                "reads",
+                                "writes",
+                                "invokes",
+                            }:
+                                continue
+                            target_id = str(edge["targetId"])
+                            if target_id not in direct_symbols:
+                                direct_symbols.add(target_id)
+                                pending.append(target_id)
+                else:
+                    expanded_modules = module_ids & related
+            expanded_symbols = direct_symbols or {
                 str(edge["targetId"])
                 for edge in edges
                 if edge.get("kind") == "contains" and edge.get("sourceId") in expanded_modules

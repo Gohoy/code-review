@@ -150,7 +150,7 @@ def index_repository(
     }
     scan_hash = hashlib.sha256(canonical_json(payload).encode()).hexdigest()
     snapshot_id = f"SNAPSHOT-REPOSITORY-LOCAL-{scan_hash[:16].upper()}"
-    graph_nodes, mappings = _graph_mappings(graph)
+    graph_nodes, mappings, direct_mapping_keys = _graph_mappings(graph)
     coverage_artifact, covered_lines = _load_coverage(repository)
     values = [
         function.json(
@@ -165,6 +165,26 @@ def index_repository(
     represented = sum(bool(value["graphNodeIds"]) for value in values)
     measured = sum(value["coverage"]["status"] != "UNKNOWN" for value in values)
     covered = sum(value["coverage"]["status"] == "COVERED" for value in values)
+    scanned_keys = {(function.path, function.qualified_name) for function in functions}
+    migration_gaps = [
+        {
+            "path": path,
+            "qualifiedName": qualified_name,
+            "reason": "AMBIGUOUS_ANCHOR",
+            "candidateNodeIds": sorted(node_ids),
+        }
+        for (path, qualified_name), node_ids in sorted(graph_nodes.items())
+        if len(node_ids) > 1 and (path, qualified_name) in direct_mapping_keys
+    ]
+    migration_gaps.extend(
+        {
+            "path": path,
+            "qualifiedName": qualified_name,
+            "reason": "NO_MATCH",
+            "candidateNodeIds": [],
+        }
+        for path, qualified_name in sorted(direct_mapping_keys - scanned_keys)
+    )
     return {
         "snapshot": {
             "id": snapshot_id,
@@ -188,6 +208,7 @@ def index_repository(
         },
         "fileFacts": file_facts,
         "functions": values,
+        "migrationGaps": migration_gaps,
         "errors": errors,
     }
 
@@ -369,13 +390,15 @@ def _graph_mappings(
 ) -> tuple[
     dict[tuple[str, str], list[str]],
     dict[tuple[str, str], list[str]],
+    set[tuple[str, str]],
 ]:
     graph_nodes: dict[tuple[str, str], list[str]] = {}
     mappings: dict[tuple[str, str], list[str]] = {}
+    direct_mapping_keys: set[tuple[str, str]] = set()
     modules_by_path: dict[str, str] = {}
     nodes = graph.get("nodes")
     if not isinstance(nodes, list):
-        return graph_nodes, mappings
+        return graph_nodes, mappings, direct_mapping_keys
     for item in nodes:
         if not isinstance(item, dict) or item.get("layer") != "implementation":
             continue
@@ -407,14 +430,16 @@ def _graph_mappings(
             continue
         sources_by_target.setdefault(target_id, []).append(source_id)
     for key, function_ids in graph_nodes.items():
-        direct = {
-            source for node_id in function_ids for source in sources_by_target.get(node_id, [])
-        }
+        direct = (
+            set(sources_by_target.get(function_ids[0], [])) if len(function_ids) == 1 else set()
+        )
+        if any(sources_by_target.get(node_id) for node_id in function_ids):
+            direct_mapping_keys.add(key)
         inherited = sources_by_target.get(modules_by_path.get(key[0], ""), [])
         values = direct or set(inherited)
         if values:
             mappings[key] = sorted(values)
-    return graph_nodes, mappings
+    return graph_nodes, mappings, direct_mapping_keys
 
 
 def _extractors(paths: list[str]) -> list[JsonObject]:

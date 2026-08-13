@@ -249,7 +249,7 @@ def with_code_snapshot(current: JsonObject, snapshot: JsonObject) -> JsonObject:
 
 
 def code_index_diff(current: JsonObject, index: JsonObject) -> JsonObject:
-    """把确定性扫描结果转换为候选图差异，语义映射仍由 Agent 单独提交。"""
+    """把扫描结果转换为候选差异，并迁移唯一源码锚点上的既有语义映射。"""
     revision = _object(current.get("revision"), "revision")
     graph = _object(current.get("graph"), "graph")
     snapshot = _object(index.get("snapshot"), "snapshot")
@@ -310,6 +310,21 @@ def code_index_diff(current: JsonObject, index: JsonObject) -> JsonObject:
         }
     ]
     upsert_edges: list[JsonObject] = retained_mapping_edges
+    mapping_pairs = {
+        (
+            _string(edge.get("sourceId"), "edge.sourceId"),
+            _string(edge.get("targetId"), "edge.targetId"),
+        )
+        for edge in retained_mapping_edges
+    }
+    previous_mapping_pairs = {
+        (
+            _string(edge.get("sourceId"), "edge.sourceId"),
+            _string(edge.get("targetId"), "edge.targetId"),
+        )
+        for edge in _objects(graph, "edges")
+        if edge.get("kind") == "implemented_by"
+    }
     file_by_path = {_string(item.get("path"), "fileFact.path"): item for item in file_facts}
     functions_by_id = {_string(item.get("id"), "function.id"): item for item in functions}
 
@@ -371,6 +386,29 @@ def code_index_diff(current: JsonObject, index: JsonObject) -> JsonObject:
                 "snapshotId": snapshot_id,
             }
         )
+        old_function_ids = _strings(function.get("graphNodeIds"), "function.graphNodeIds")
+        for source_id in _strings(function.get("mappedNodeIds"), "function.mappedNodeIds"):
+            if (
+                len(old_function_ids) != 1
+                or (
+                    source_id,
+                    old_function_ids[0],
+                )
+                not in previous_mapping_pairs
+            ):
+                continue
+            if (source_id, function_id) in mapping_pairs:
+                continue
+            upsert_edges.append(
+                {
+                    "id": _edge_id("IMPLEMENTED", source_id, function_id),
+                    "sourceId": source_id,
+                    "targetId": function_id,
+                    "kind": "implemented_by",
+                    "source": "INFERRED",
+                }
+            )
+            mapping_pairs.add((source_id, function_id))
 
     lookup = _function_lookup(functions)
     function_nodes = {
@@ -720,18 +758,24 @@ def requirement_context(document: JsonObject, focus_id: str) -> JsonObject:
         if (target_id := _string(edge.get("targetId"), "targetId")) in nodes
         and nodes[target_id].get("layer") == "implementation"
     )
+    direct_symbol_ids = {
+        node_id for node_id in implementation_ids if nodes[node_id].get("kind") == "Symbol"
+    }
     module_ids = {
         node_id for node_id in implementation_ids if nodes[node_id].get("kind") == "Module"
     }
-    implementation_ids.update(
-        _string(edge.get("targetId"), "targetId")
-        for edge in edges
-        if edge.get("kind") == "contains"
-        and edge.get("sourceId") in module_ids
-        and edge.get("targetId") in nodes
-        and nodes[_string(edge.get("targetId"), "targetId")].get("kind") == "Symbol"
-    )
-    implementation_ids -= module_ids
+    if direct_symbol_ids:
+        implementation_ids = direct_symbol_ids
+    else:
+        implementation_ids.update(
+            _string(edge.get("targetId"), "targetId")
+            for edge in edges
+            if edge.get("kind") == "contains"
+            and edge.get("sourceId") in module_ids
+            and edge.get("targetId") in nodes
+            and nodes[_string(edge.get("targetId"), "targetId")].get("kind") == "Symbol"
+        )
+        implementation_ids -= module_ids
     call_kinds = {"calls", "reads", "writes", "invokes"}
     ordered_ids: list[str] = []
     depths: dict[str, int] = {}

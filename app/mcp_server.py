@@ -174,6 +174,7 @@ async def repository_sync() -> JsonObject:
             "revision": revision,
             "coverage": index["coverage"],
             "ownership": code_ownership(candidate),
+            "migrationGaps": index["migrationGaps"],
             "errors": index["errors"],
         }
 

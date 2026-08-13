@@ -904,7 +904,10 @@ def test_SCN_REPOSITORY_BASELINE_001_模块语义归属覆盖全部函数(tmp_pa
         "REV-REVIEW-TOOL-1000",
         schema(),
     )
-    assert code_ownership(result)["semanticallyOwnedFunctionCount"] == 2
+    refreshed_ownership = code_ownership(result)
+    assert refreshed_ownership["semanticallyOwnedFunctionCount"] == 2
+    assert refreshed_ownership["directlyOwnedFunctionCount"] == 0
+    assert refreshed_ownership["inheritedFunctionCount"] == 2
 
 
 def test_SCN_FUNCTION_COVERAGE_001_需求继承模块下全部函数(tmp_path: Path) -> None:
