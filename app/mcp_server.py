@@ -279,7 +279,7 @@ async def test_run() -> JsonObject:
             scenario_ids = frozenset(cast(list[str], context["changedScenarioIds"]))
             summary = await runner.verify(worktree, scenario_ids)
         except Exception as error:
-            await asyncio.to_thread(store.finish_test, run_id, False, str(error))
+            await asyncio.to_thread(store.finish_test, run_id, False, str(error), "")
             raise
         context_hash = validation_context_hash(sorted(scenario_ids))
         await asyncio.to_thread(store.finish_test, run_id, True, summary, context_hash)
