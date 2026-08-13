@@ -14,7 +14,9 @@ from app.graph import (
     apply_diff,
     approval_errors,
     canonical_json,
+    code_index_diff,
     validate_document,
+    with_code_snapshot,
 )
 
 REQUIREMENT_ID = "REQ-REVIEW-TOOL"
@@ -418,6 +420,46 @@ class Store:
             )
             return agent_run_id, current, messages
 
+    def begin_baseline_agent(self) -> tuple[str, JsonObject]:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            requirement = connection.execute(
+                "SELECT * FROM requirement WHERE id = ?", (REQUIREMENT_ID,)
+            ).fetchone()
+            if requirement is None or requirement["operation_status"] != "IDLE":
+                raise StoreError("当前已有 AI 任务正在执行")
+            current = self._revision_row(
+                connection.execute(
+                    """
+                    SELECT revision.* FROM revision
+                    JOIN repository ON repository.current_revision_id = revision.id
+                    WHERE repository.id = ?
+                    """,
+                    (REPOSITORY_ID,),
+                ).fetchone()
+            )
+            revision = cast(JsonObject, current["revision"])
+            now = _now()
+            agent_run_id = f"AGENT-{uuid.uuid4().hex.upper()}"
+            connection.execute(
+                """
+                INSERT INTO agent_run (
+                    id, requirement_id, task, revision_id, status, created_at, updated_at
+                ) VALUES (?, ?, 'REPOSITORY_BASELINE', ?, 'RUNNING', ?, ?)
+                """,
+                (agent_run_id, REQUIREMENT_ID, revision["id"], now, now),
+            )
+            connection.execute(
+                """
+                UPDATE requirement
+                SET operation_status = 'AGENT_RUNNING', status = 'AGENT_RUNNING',
+                    last_error = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (now, REQUIREMENT_ID),
+            )
+            return agent_run_id, current
+
     def next_revision_id(self) -> str:
         with self._connect() as connection:
             ids = [row[0] for row in connection.execute("SELECT id FROM revision")]
@@ -428,7 +470,13 @@ class Store:
         ]
         return f"REV-REVIEW-TOOL-{max(numbers, default=0) + 1:03d}"
 
-    def create_candidate(self, agent_run_id: str, diff: JsonObject) -> JsonObject:
+    def create_candidate(
+        self,
+        agent_run_id: str,
+        diff: JsonObject,
+        *,
+        base: JsonObject | None = None,
+    ) -> JsonObject:
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT * FROM agent_run WHERE id = ?", (agent_run_id,)
@@ -447,11 +495,12 @@ class Store:
                 """,
                 (REPOSITORY_ID,),
             ).fetchone()
-            current = self._revision_row(current_row)
+            persisted = self._revision_row(current_row)
+            current = base or persisted
         revision_id = self.next_revision_id()
         document = apply_diff(current, diff, revision_id, self.graph_schema)
         revision = cast(JsonObject, document["revision"])
-        current_revision = cast(JsonObject, current["revision"])
+        current_revision = cast(JsonObject, persisted["revision"])
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             repository = connection.execute(
@@ -491,6 +540,12 @@ class Store:
                 (revision_id, now, REQUIREMENT_ID),
             )
         return document
+
+    def sync_code_index(self, agent_run_id: str, index: JsonObject) -> JsonObject:
+        current = self.current_document()
+        snapshot = cast(JsonObject, index["snapshot"])
+        base = with_code_snapshot(current, snapshot)
+        return self.create_candidate(agent_run_id, code_index_diff(base, index), base=base)
 
     def record_agent_prompt(
         self,

@@ -45,11 +45,37 @@ class Service:
     assert isinstance(coverage, dict)
     assert coverage == {
         "functionCount": 6,
+        "graphFunctionCount": 0,
         "mappedFunctionCount": 0,
         "unmappedFunctionCount": 6,
+        "status": "UNKNOWN",
+        "measuredFunctionCount": 0,
+        "coveredFunctionCount": 0,
+        "uncoveredFunctionCount": 0,
+        "artifact": None,
     }
     outer = next(item for item in functions if item["qualifiedName"] == "outer")
     assert outer["calls"] == ["helper"]
     submit = next(item for item in functions if item["qualifiedName"] == "App.submit")
     assert submit["calls"] == ["request"]
     assert len({item["id"] for item in functions}) == len(functions)
+
+
+def test_SCN_FUNCTION_COVERAGE_001_导入真实函数覆盖率(tmp_path: Path) -> None:
+    source = tmp_path / "service.py"
+    source.write_text(
+        "def covered():\n    return 1\n\ndef missed():\n    return 2\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "coverage.json").write_text(
+        '{"files":{"service.py":{"executed_lines":[1,2]}}}', encoding="utf-8"
+    )
+
+    result = index_repository(tmp_path, ["service.py"], "1" * 40, "2" * 40, {"nodes": []})
+
+    coverage = result["coverage"]
+    assert coverage["status"] == "OBSERVED"
+    assert coverage["coveredFunctionCount"] == 1
+    assert coverage["uncoveredFunctionCount"] == 1
+    functions = result["functions"]
+    assert [item["coverage"]["status"] for item in functions] == ["COVERED", "UNCOVERED"]

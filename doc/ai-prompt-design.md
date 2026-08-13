@@ -16,7 +16,7 @@ prompt/
 ```
 
 - `common@1.0.0`：分层、来源等级、证据、不可信数据和人工批准边界。
-- `repository-baseline@1.0.0`：扫描存量函数并建立用户主线、场景和语义映射。
+- `repository-baseline@2.0.0`：先确定性同步存量函数、调用与覆盖证据，再建立用户主线、场景和语义映射。
 - `requirement-change@1.0.0`：理解对话，将需求作为现有主线的最小分支写入候选图。
 - `implementation@1.0.0`：在批准后的隔离 worktree 开发并调用固定测试。
 - `semantic-review@1.0.0`：独立只读检查批准图、代码 Diff 和测试证据，通过后调用本地合并。
@@ -39,6 +39,7 @@ prompt/
 | Tool | 允许任务 | 确定性效果 |
 | --- | --- | --- |
 | `repository_index` | 仓库基线、需求变更 | Python AST 与 Tree-sitter 扫描函数、调用和映射覆盖率 |
+| `repository_sync` | 仓库基线 | 把全部代码事实和已有覆盖率证据原子写入新的候选 revision |
 | `graph_query` | 仓库基线、需求变更、语义 Review | 精确读取节点邻域 |
 | `graph_create_candidate` | 仓库基线、需求变更 | 校验差异并原子创建候选 revision |
 | `revision_request_approval` | 仓库基线、需求变更 | 检查批准条件并请求用户批准，不代替用户批准 |
@@ -74,6 +75,8 @@ Service 只负责响应用户事件、启动任务 Prompt 和核对最终领域�
 
 - 所有项目自有函数由 Python AST 与 Tree-sitter 枚举，使用路径、限定名和匿名函数位置生成稳定 ID。
 - 每个函数提供固定 Git commit、tree hash、源码范围、指纹、原始调用和当前图映射。
+- 页面通过“生成/刷新代码基线”启动独立 `REPOSITORY_BASELINE` Agent，不把初始化伪装成普通对话。
+- coverage.py JSON 与 LCOV 只作为 `OBSERVED` 证据导入；没有产物时状态为 `UNKNOWN`，不伪报零覆盖。
 - 源码锚点与确定性调用是 `DERIVED`；函数对应哪个用户场景或技术设计由 Agent 标为 `INFERRED`。
 - 未映射函数是覆盖缺口，不自动等同于死代码；是否删除仍需场景、运行证据和 Review。
 

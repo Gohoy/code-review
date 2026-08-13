@@ -986,192 +986,143 @@
       },
       {
         "id": "EDGE-FLOW-CONTAINS-AGENT-MCP",
-        "kind": "contains",
-        "source": "DECLARED",
         "sourceId": "FLOW-REQUIREMENT-TO-DEVELOPMENT",
-        "targetId": "SCN-AGENT-MCP-ORCHESTRATION-001"
+        "targetId": "SCN-AGENT-MCP-ORCHESTRATION-001",
+        "kind": "contains",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-FLOW-CONTAINS-AGENT-APPROVAL",
-        "kind": "contains",
-        "source": "DECLARED",
         "sourceId": "FLOW-REQUIREMENT-TO-DEVELOPMENT",
-        "targetId": "SCN-AGENT-APPROVAL-001"
+        "targetId": "SCN-AGENT-APPROVAL-001",
+        "kind": "contains",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-FLOW-CONTAINS-AGENT-ACTIVITY",
-        "kind": "contains",
-        "source": "DECLARED",
         "sourceId": "FLOW-REQUIREMENT-TO-DEVELOPMENT",
-        "targetId": "SCN-AGENT-TOOL-ACTIVITY-001"
+        "targetId": "SCN-AGENT-TOOL-ACTIVITY-001",
+        "kind": "contains",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-FLOW-CONTAINS-AGENT-REVIEW",
-        "kind": "contains",
-        "source": "DECLARED",
         "sourceId": "FLOW-REQUIREMENT-TO-DEVELOPMENT",
-        "targetId": "SCN-AGENT-SEMANTIC-REVIEW-001"
-      },
-      {
-        "id": "EDGE-FLOW-CONTAINS-REPOSITORY-BASELINE",
+        "targetId": "SCN-AGENT-SEMANTIC-REVIEW-001",
         "kind": "contains",
-        "source": "DECLARED",
-        "sourceId": "FLOW-REQUIREMENT-TO-DEVELOPMENT",
-        "targetId": "SCN-REPOSITORY-BASELINE-001"
-      },
-      {
-        "id": "EDGE-FLOW-CONTAINS-FUNCTION-COVERAGE",
-        "kind": "contains",
-        "source": "DECLARED",
-        "sourceId": "FLOW-REQUIREMENT-TO-DEVELOPMENT",
-        "targetId": "SCN-FUNCTION-COVERAGE-001"
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-SCN-AGENT-MCP-REALIZED",
-        "kind": "realized_by",
-        "source": "DECLARED",
         "sourceId": "SCN-AGENT-MCP-ORCHESTRATION-001",
-        "targetId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER"
+        "targetId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER",
+        "kind": "realized_by",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-SCN-AGENT-APPROVAL-REALIZED",
-        "kind": "realized_by",
-        "source": "DECLARED",
         "sourceId": "SCN-AGENT-APPROVAL-001",
-        "targetId": "DESIGN-INTERFACE-APPROVE"
+        "targetId": "DESIGN-INTERFACE-APPROVE",
+        "kind": "realized_by",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-SCN-AGENT-ACTIVITY-REALIZED",
-        "kind": "realized_by",
-        "source": "DECLARED",
         "sourceId": "SCN-AGENT-TOOL-ACTIVITY-001",
-        "targetId": "DESIGN-ENTITY-TOOL-INVOCATION"
+        "targetId": "DESIGN-ENTITY-TOOL-INVOCATION",
+        "kind": "realized_by",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-SCN-AGENT-REVIEW-REALIZED",
-        "kind": "realized_by",
-        "source": "DECLARED",
         "sourceId": "SCN-AGENT-SEMANTIC-REVIEW-001",
-        "targetId": "DESIGN-CONFIGURATION-PROMPT-CATALOG"
-      },
-      {
-        "id": "EDGE-SCN-REPOSITORY-BASELINE-REALIZED",
+        "targetId": "DESIGN-CONFIGURATION-PROMPT-CATALOG",
         "kind": "realized_by",
-        "source": "INFERRED",
-        "sourceId": "SCN-REPOSITORY-BASELINE-001",
-        "targetId": "DESIGN-COMPONENT-CODE-SCANNER"
-      },
-      {
-        "id": "EDGE-SCN-FUNCTION-COVERAGE-REALIZED",
-        "kind": "realized_by",
-        "source": "INFERRED",
-        "sourceId": "SCN-FUNCTION-COVERAGE-001",
-        "targetId": "DESIGN-COMPONENT-COVERAGE-IMPORTER"
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-WEB-CONTAINS-MCP",
+        "sourceId": "DESIGN-COMPONENT-LOCAL-WEB",
+        "targetId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER",
         "kind": "contains",
-        "source": "DECLARED",
-        "sourceId": "DESIGN-COMPONENT-LOCAL-WEB",
-        "targetId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER"
-      },
-      {
-        "id": "EDGE-WEB-EXPOSES-REPOSITORY-BASELINE",
-        "kind": "exposes",
-        "source": "INFERRED",
-        "sourceId": "DESIGN-COMPONENT-LOCAL-WEB",
-        "targetId": "DESIGN-INTERFACE-REPOSITORY-BASELINE"
-      },
-      {
-        "id": "EDGE-BASELINE-CALLS-CODE-SCANNER",
-        "kind": "calls",
-        "source": "INFERRED",
-        "sourceId": "DESIGN-INTERFACE-REPOSITORY-BASELINE",
-        "targetId": "DESIGN-COMPONENT-CODE-SCANNER"
-      },
-      {
-        "id": "EDGE-CODE-SCANNER-CALLS-COVERAGE-IMPORTER",
-        "kind": "calls",
-        "source": "INFERRED",
-        "sourceId": "DESIGN-COMPONENT-CODE-SCANNER",
-        "targetId": "DESIGN-COMPONENT-COVERAGE-IMPORTER"
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-AGENT-HOST-CALLS-RUNNER",
-        "kind": "calls",
-        "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-REQUIREMENT-COORDINATOR",
-        "targetId": "DESIGN-COMPONENT-CODEX-RUNNER"
+        "targetId": "DESIGN-COMPONENT-CODEX-RUNNER",
+        "kind": "calls",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-AGENT-RUNNER-CALLS-MCP",
-        "kind": "calls",
-        "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-CODEX-RUNNER",
-        "targetId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER"
+        "targetId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER",
+        "kind": "calls",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-MCP-READS-REVISION",
-        "kind": "reads",
-        "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER",
-        "targetId": "DESIGN-ENTITY-REVISION"
+        "targetId": "DESIGN-ENTITY-REVISION",
+        "kind": "reads",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-MCP-WRITES-REVISION",
-        "kind": "writes",
-        "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER",
-        "targetId": "DESIGN-ENTITY-REVISION"
+        "targetId": "DESIGN-ENTITY-REVISION",
+        "kind": "writes",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-MCP-WRITES-IMPLEMENTATION-RUN",
-        "kind": "writes",
-        "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER",
-        "targetId": "DESIGN-ENTITY-IMPLEMENTATION-RUN"
+        "targetId": "DESIGN-ENTITY-IMPLEMENTATION-RUN",
+        "kind": "writes",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-SQLITE-CONTAINS-AGENT-RUN",
-        "kind": "contains",
-        "source": "DECLARED",
         "sourceId": "DESIGN-STORE-SQLITE",
-        "targetId": "DESIGN-ENTITY-AGENT-RUN"
+        "targetId": "DESIGN-ENTITY-AGENT-RUN",
+        "kind": "contains",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-SQLITE-CONTAINS-TOOL-INVOCATION",
-        "kind": "contains",
-        "source": "DECLARED",
         "sourceId": "DESIGN-STORE-SQLITE",
-        "targetId": "DESIGN-ENTITY-TOOL-INVOCATION"
+        "targetId": "DESIGN-ENTITY-TOOL-INVOCATION",
+        "kind": "contains",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-AGENT-HOST-WRITES-AGENT-RUN",
-        "kind": "writes",
-        "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-REQUIREMENT-COORDINATOR",
-        "targetId": "DESIGN-ENTITY-AGENT-RUN"
+        "targetId": "DESIGN-ENTITY-AGENT-RUN",
+        "kind": "writes",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-MCP-WRITES-TOOL-INVOCATION",
-        "kind": "writes",
-        "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER",
-        "targetId": "DESIGN-ENTITY-TOOL-INVOCATION"
+        "targetId": "DESIGN-ENTITY-TOOL-INVOCATION",
+        "kind": "writes",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-MCP-CONFIGURED-BY-TEST-PROFILE",
-        "kind": "configured_by",
-        "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-REVIEW-MCP-SERVER",
-        "targetId": "DESIGN-CONFIGURATION-TEST-PROFILE"
+        "targetId": "DESIGN-CONFIGURATION-TEST-PROFILE",
+        "kind": "configured_by",
+        "source": "DECLARED"
       },
       {
         "id": "EDGE-AGENT-RUNNER-CONFIGURED-BY-PROMPTS",
-        "kind": "configured_by",
-        "source": "DECLARED",
         "sourceId": "DESIGN-COMPONENT-CODEX-RUNNER",
-        "targetId": "DESIGN-CONFIGURATION-PROMPT-CATALOG"
+        "targetId": "DESIGN-CONFIGURATION-PROMPT-CATALOG",
+        "kind": "configured_by",
+        "source": "DECLARED"
       }
     ],
     "entryNodeIds": [
@@ -1722,8 +1673,7 @@
           "precondition": "本地主工作区无未提交变化且 HEAD 等于 worktree 基线",
           "verification": [
             "uv sync --frozen",
-            "uv run coverage run -m pytest",
-            "uv run coverage json -o coverage.json",
+            "uv run pytest",
             "uv run ruff check .",
             "uv run ruff format --check .",
             "npm --prefix prototype ci",
@@ -2273,87 +2223,94 @@
         "title": "本地自动交付门禁"
       },
       {
+        "id": "SCN-AGENT-MCP-ORCHESTRATION-001",
+        "layer": "requirement",
+        "kind": "Scenario",
+        "title": "Agent 按意图自主调用 MCP",
+        "summary": "对话不映射为固定后台流程，Agent 根据目标和当前状态选择最少的资源与工具。",
+        "source": "DECLARED",
         "details": {
           "given": [
             "用户提交自然语言需求且当前没有 Agent 正在运行"
           ],
+          "when": [
+            "Agent 读取项目状态、规则和当前统一图"
+          ],
           "then": [
             "Agent 只调用完成本次目标所需的 MCP 能力",
             "每次工具调用都产生可见状态"
-          ],
-          "when": [
-            "Agent 读取项目状态、规则和当前统一图"
           ]
-        },
-        "id": "SCN-AGENT-MCP-ORCHESTRATION-001",
-        "kind": "Scenario",
-        "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "对话不映射为固定后台流程，Agent 根据目标和当前状态选择最少的资源与工具。",
-        "title": "Agent 按意图自主调用 MCP"
+        }
       },
       {
+        "id": "SCN-AGENT-APPROVAL-001",
+        "layer": "requirement",
+        "kind": "Scenario",
+        "title": "Agent 请求批准后停止写入",
+        "summary": "Agent 可以请求批准，但不能替用户批准候选图。",
+        "source": "DECLARED",
         "details": {
           "given": [
             "Agent 已生成可批准的候选 revision"
           ],
+          "when": [
+            "Agent 判断设计已具备开发条件"
+          ],
           "then": [
             "Agent 返回等待批准并停止",
             "只有用户界面的明确批准请求能够冻结 revision 并开始开发"
-          ],
-          "when": [
-            "Agent 判断设计已具备开发条件"
           ]
-        },
-        "id": "SCN-AGENT-APPROVAL-001",
-        "kind": "Scenario",
-        "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "Agent 可以请求批准，但不能替用户批准候选图。",
-        "title": "Agent 请求批准后停止写入"
+        }
       },
       {
+        "id": "SCN-AGENT-TOOL-ACTIVITY-001",
+        "layer": "requirement",
+        "kind": "Scenario",
+        "title": "查看 Agent 和工具活动",
+        "summary": "用户在同一页面查看 Agent 当前任务及 MCP 工具的成功、失败与摘要。",
+        "source": "DECLARED",
         "details": {
           "given": [
             "Agent 正在执行或已经结束"
           ],
+          "when": [
+            "页面轮询最新状态"
+          ],
           "then": [
             "页面显示 Agent 任务、状态及最近工具调用",
             "工具失败不会伪装为成功"
-          ],
-          "when": [
-            "页面轮询最新状态"
           ]
-        },
-        "id": "SCN-AGENT-TOOL-ACTIVITY-001",
-        "kind": "Scenario",
-        "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "用户在同一页面查看 Agent 当前任务及 MCP 工具的成功、失败与摘要。",
-        "title": "查看 Agent 和工具活动"
+        }
       },
       {
+        "id": "SCN-AGENT-SEMANTIC-REVIEW-001",
+        "layer": "requirement",
+        "kind": "Scenario",
+        "title": "独立 Agent 执行语义 Review",
+        "summary": "实现完成且固定测试通过后，由只读 Agent 对照批准图检查代码差异与证据。",
+        "source": "DECLARED",
         "details": {
           "given": [
             "实现 Agent 已提交变更且固定测试全部通过"
           ],
+          "when": [
+            "系统启动 semantic-review Agent"
+          ],
           "then": [
             "Review 结论关联场景和证据",
             "只有 PASS 才允许调用本地合并工具"
-          ],
-          "when": [
-            "系统启动 semantic-review Agent"
           ]
-        },
-        "id": "SCN-AGENT-SEMANTIC-REVIEW-001",
-        "kind": "Scenario",
-        "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "实现完成且固定测试通过后，由只读 Agent 对照批准图检查代码差异与证据。",
-        "title": "独立 Agent 执行语义 Review"
+        }
       },
       {
+        "id": "DESIGN-COMPONENT-REVIEW-MCP-SERVER",
+        "layer": "design",
+        "kind": "Component",
+        "title": "sdbp-review MCP Server",
+        "summary": "通过 stdio 向 Agent 提供项目 Resource、版本化 Prompt 和领域 Tool；所有写操作复用 Store、Graph 与 Runner 的确定性实现。",
+        "source": "DECLARED",
         "details": {
+          "transport": "stdio",
           "resources": [
             "project://current/state",
             "project://current/rules",
@@ -2364,7 +2321,6 @@
           ],
           "tools": [
             "repository_index",
-            "repository_sync",
             "graph_query",
             "graph_create_candidate",
             "revision_request_approval",
@@ -2373,36 +2329,36 @@
             "test_run",
             "review_submit",
             "delivery_merge"
-          ],
-          "transport": "stdio"
-        },
-        "id": "DESIGN-COMPONENT-REVIEW-MCP-SERVER",
-        "kind": "Component",
-        "layer": "design",
-        "source": "DECLARED",
-        "summary": "通过 stdio 向 Agent 提供项目 Resource、版本化 Prompt 和领域 Tool；所有写操作复用 Store、Graph 与 Runner 的确定性实现。",
-        "title": "sdbp-review MCP Server"
+          ]
+        }
       },
       {
-        "details": {},
         "id": "DESIGN-ENTITY-AGENT-RUN",
-        "kind": "DataEntity",
         "layer": "design",
-        "source": "DECLARED",
+        "kind": "DataEntity",
+        "title": "agent_run 表",
         "summary": "记录任务 Prompt、关联 revision/交付运行、输入哈希、最终回复和状态，不保存隐藏推理。",
-        "title": "agent_run 表"
-      },
-      {
-        "details": {},
-        "id": "DESIGN-ENTITY-TOOL-INVOCATION",
-        "kind": "DataEntity",
-        "layer": "design",
         "source": "DECLARED",
-        "summary": "记录每次 MCP 工具调用的名称、状态和可审查摘要，供 Agent 恢复和页面展示。",
-        "title": "tool_invocation 表"
+        "details": {}
       },
       {
+        "id": "DESIGN-ENTITY-TOOL-INVOCATION",
+        "layer": "design",
+        "kind": "DataEntity",
+        "title": "tool_invocation 表",
+        "summary": "记录每次 MCP 工具调用的名称、状态和可审查摘要，供 Agent 恢复和页面展示。",
+        "source": "DECLARED",
+        "details": {}
+      },
+      {
+        "id": "DESIGN-CONFIGURATION-TEST-PROFILE",
+        "layer": "design",
+        "kind": "Configuration",
+        "title": "项目测试说明",
+        "summary": "向 Agent 暴露当前项目固定验证命令及运行位置；工具执行并记录真实结果。",
+        "source": "DECLARED",
         "details": {
+          "profile": "local",
           "commands": [
             "uv sync --frozen",
             "uv run pytest",
@@ -2411,96 +2367,17 @@
             "npm --prefix prototype ci",
             "npm --prefix prototype run build",
             "npm --prefix prototype run test:sites"
-          ],
-          "profile": "local"
-        },
-        "id": "DESIGN-CONFIGURATION-TEST-PROFILE",
-        "kind": "Configuration",
-        "layer": "design",
-        "source": "DECLARED",
-        "summary": "向 Agent 暴露当前项目固定验证命令及运行位置；工具执行并记录真实结果。",
-        "title": "项目测试说明"
-      },
-      {
-        "details": {
-          "given": [
-            "目标仓库是干净的 Git 工作区且当前没有 Agent 任务运行"
-          ],
-          "then": [
-            "系统创建固定 CodeSnapshot 并确定性写入每一个扫描到的函数节点",
-            "系统写入能够唯一解析的函数调用关系并显式汇报未解析调用",
-            "Agent 只为函数与需求或技术设计补充 INFERRED 关系",
-            "结果作为候选 revision 等待用户批准"
-          ],
-          "when": [
-            "用户点击生成或刷新代码基线"
           ]
-        },
-        "id": "SCN-REPOSITORY-BASELINE-001",
-        "kind": "Scenario",
-        "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "用户从统一图页面启动只读基线任务，系统把固定 Git 快照中的全部项目函数和可解析调用关系写入候选图，再由 Agent 补充需求与设计的语义映射。",
-        "title": "生成或刷新仓库代码基线"
-      },
-      {
-        "details": {
-          "given": [
-            "仓库扫描已生成函数事实，测试工具可能生成 coverage.py JSON 或 LCOV 产物"
-          ],
-          "then": [
-            "页面显示函数总数、需求映射数、覆盖函数数和明确缺口",
-            "覆盖率只来自 OBSERVED 测试产物，不存在产物时显示未知而不是零覆盖",
-            "每个覆盖证据关联具体实现函数和固定代码快照"
-          ],
-          "when": [
-            "基线任务同步代码事实并读取现有覆盖率产物"
-          ]
-        },
-        "id": "SCN-FUNCTION-COVERAGE-001",
-        "kind": "Scenario",
-        "layer": "requirement",
-        "source": "DECLARED",
-        "summary": "代码节点展示需求映射与真实覆盖率证据，未映射、未覆盖或无法解析的函数保持可见，可作为 Review 和清理依据。",
-        "title": "查看函数映射和测试覆盖情况"
-      },
-      {
-        "details": {
-          "method": "POST",
-          "path": "/api/repository/baseline"
-        },
-        "id": "DESIGN-INTERFACE-REPOSITORY-BASELINE",
-        "kind": "Interface",
-        "layer": "design",
-        "source": "INFERRED",
-        "summary": "在当前状态允许时启动 REPOSITORY_BASELINE Agent，不通过普通需求消息伪装初始化意图。",
-        "title": "启动仓库基线任务"
-      },
-      {
-        "details": {
-          "authority": "测试运行产物",
-          "fallback": "UNKNOWN",
-          "formats": [
-            "coverage.json",
-            "coverage-final.json",
-            "lcov.info"
-          ]
-        },
-        "id": "DESIGN-COMPONENT-COVERAGE-IMPORTER",
-        "kind": "Component",
-        "layer": "design",
-        "source": "INFERRED",
-        "summary": "只读解析仓库已有的 coverage.py JSON 或 LCOV 产物，把命中行投影为函数级 OBSERVED 测试证据；缺少产物时返回未知状态。",
-        "title": "测试覆盖率导入器"
+        }
       }
     ]
   },
   "modelId": "MODEL-REVIEW-TOOL",
   "revision": {
     "approvable": true,
-    "baseRevisionId": "REV-REVIEW-TOOL-012",
-    "contentHash": "030c8a8f761566e965af7548eee3ecd7f0bbf08aec9247b59db5aa8968f6649a",
-    "id": "REV-REVIEW-TOOL-013",
+    "baseRevisionId": "REV-REVIEW-TOOL-011",
+    "contentHash": "a8e6ba81b8b753cdd648b45ccd99ca9eda648546f497afc081a40a93de1ec7f8",
+    "id": "REV-REVIEW-TOOL-012",
     "status": "CANDIDATE"
   },
   "schemaVersion": 2,

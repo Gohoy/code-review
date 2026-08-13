@@ -61,6 +61,36 @@ class ReviewService:
             for layer in ("requirement", "design", "implementation", "verification")
         }
         state["dependencies"] = self.dependencies
+        implementation = [node for node in nodes if node.get("layer") == "implementation"]
+        functions = [node for node in implementation if node.get("kind") == "Symbol"]
+        mapped_ids = {
+            edge.get("targetId")
+            for edge in cast(list[JsonObject], graph["edges"])
+            if edge.get("kind") == "implemented_by"
+        }
+        coverage_values = [
+            cast(JsonObject, node["details"]).get("coverage")
+            for node in functions
+            if isinstance(node.get("details"), dict)
+        ]
+        state["codeMetrics"] = {
+            "functionCount": len(functions),
+            "mappedFunctionCount": sum(node.get("id") in mapped_ids for node in functions),
+            "coveredFunctionCount": sum(
+                isinstance(value, dict) and value.get("status") == "COVERED"
+                for value in coverage_values
+            ),
+            "uncoveredFunctionCount": sum(
+                isinstance(value, dict) and value.get("status") == "UNCOVERED"
+                for value in coverage_values
+            ),
+            "coverageStatus": "OBSERVED"
+            if any(
+                isinstance(value, dict) and value.get("status") != "UNKNOWN"
+                for value in coverage_values
+            )
+            else "UNKNOWN",
+        }
         return state
 
     async def graph_svg(self, layers: set[str], focus_id: str | None) -> str:
@@ -88,6 +118,19 @@ class ReviewService:
         }
         prompt = await self._record_prompt(agent_run_id, "REQUIREMENT_CHANGE", context)
         self._start(self._run_agent("REQUIREMENT_CHANGE", agent_run_id, prompt))
+        return agent_run_id
+
+    async def start_repository_baseline(self) -> str:
+        agent_run_id, document = await asyncio.to_thread(self.store.begin_baseline_agent)
+        revision = cast(JsonObject, document["revision"])
+        context: JsonObject = {
+            "agentRunId": agent_run_id,
+            "task": "REPOSITORY_BASELINE",
+            "baseRevisionId": revision["id"],
+            "expectedFinalStatus": ["AWAITING_APPROVAL", "NEEDS_INPUT"],
+        }
+        prompt = await self._record_prompt(agent_run_id, "REPOSITORY_BASELINE", context)
+        self._start(self._run_agent("REPOSITORY_BASELINE", agent_run_id, prompt))
         return agent_run_id
 
     async def approve_and_start(self, revision_id: str, content_hash: str) -> str:

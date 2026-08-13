@@ -175,6 +175,198 @@ def apply_diff(
     return result
 
 
+def with_code_snapshot(current: JsonObject, snapshot: JsonObject) -> JsonObject:
+    result = copy.deepcopy(current)
+    _object(result.get("graph"), "graph")["codeSnapshots"] = [copy.deepcopy(snapshot)]
+    return result
+
+
+def code_index_diff(current: JsonObject, index: JsonObject) -> JsonObject:
+    """把确定性扫描结果转换为候选图差异，语义映射仍由 Agent 单独提交。"""
+    revision = _object(current.get("revision"), "revision")
+    graph = _object(current.get("graph"), "graph")
+    snapshot = _object(index.get("snapshot"), "snapshot")
+    snapshot_id = _string(snapshot.get("id"), "snapshot.id")
+    functions = [_object(value, "function") for value in _list(index.get("functions"), "functions")]
+    file_facts = [
+        _object(value, "fileFact") for value in _list(index.get("fileFacts"), "fileFacts")
+    ]
+    coverage = _object(index.get("coverage"), "coverage")
+
+    previous_implementation_ids = {
+        _string(node.get("id"), "node.id")
+        for node in _objects(graph, "nodes")
+        if node.get("layer") == "implementation"
+    }
+    delete_edge_ids = [
+        _string(edge.get("id"), "edge.id")
+        for edge in _objects(graph, "edges")
+        if edge.get("sourceId") in previous_implementation_ids
+        or edge.get("targetId") in previous_implementation_ids
+    ]
+    repository_node_id = "IMPL-REPOSITORY-LOCAL"
+    module_ids: dict[str, str] = {}
+    upsert_nodes: list[JsonObject] = [
+        {
+            "id": repository_node_id,
+            "layer": "implementation",
+            "kind": "Repository",
+            "title": "当前代码仓库",
+            "summary": "固定 Git 快照中的项目自有代码。",
+            "source": "DERIVED",
+            "snapshotId": snapshot_id,
+            "details": {
+                "commitSha": snapshot["commitSha"],
+                "functionCount": coverage["functionCount"],
+                "mappedFunctionCount": coverage["mappedFunctionCount"],
+                "coverageStatus": coverage["status"],
+                "coveredFunctionCount": coverage["coveredFunctionCount"],
+            },
+        }
+    ]
+    upsert_edges: list[JsonObject] = []
+    file_by_path = {_string(item.get("path"), "fileFact.path"): item for item in file_facts}
+    functions_by_id = {_string(item.get("id"), "function.id"): item for item in functions}
+
+    for function in functions:
+        path = _string(function.get("path"), "function.path")
+        module_id = module_ids.setdefault(path, _module_id(path))
+        if not any(node["id"] == module_id for node in upsert_nodes):
+            file_fact = file_by_path[path]
+            upsert_nodes.append(
+                {
+                    "id": module_id,
+                    "layer": "implementation",
+                    "kind": "Module",
+                    "title": path,
+                    "summary": "包含项目函数的源码文件。",
+                    "source": "DERIVED",
+                    "snapshotId": snapshot_id,
+                    "anchors": [_anchor(snapshot_id, file_fact)],
+                    "details": {"path": path},
+                }
+            )
+            upsert_edges.append(
+                {
+                    "id": _edge_id("CONTAINS", repository_node_id, module_id),
+                    "sourceId": repository_node_id,
+                    "targetId": module_id,
+                    "kind": "contains",
+                    "source": "DERIVED",
+                    "snapshotId": snapshot_id,
+                }
+            )
+        function_id = _string(function.get("id"), "function.id")
+        coverage_value = _object(function.get("coverage"), "function.coverage")
+        upsert_nodes.append(
+            {
+                "id": function_id,
+                "layer": "implementation",
+                "kind": "Symbol",
+                "title": _string(function.get("qualifiedName"), "function.qualifiedName"),
+                "summary": f"{path} 中的函数。",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+                "anchors": [_anchor(snapshot_id, function)],
+                "details": {
+                    "qualifiedName": function["qualifiedName"],
+                    "functionKind": function["kind"],
+                    "coverage": coverage_value,
+                    "unresolvedCalls": [],
+                },
+            }
+        )
+        upsert_edges.append(
+            {
+                "id": _edge_id("CONTAINS", module_id, function_id),
+                "sourceId": module_id,
+                "targetId": function_id,
+                "kind": "contains",
+                "source": "DERIVED",
+                "snapshotId": snapshot_id,
+            }
+        )
+
+    lookup = _function_lookup(functions)
+    function_nodes = {
+        _string(node["id"], "node.id"): node
+        for node in upsert_nodes
+        if node.get("kind") == "Symbol"
+    }
+    for source_id, function in functions_by_id.items():
+        unresolved: list[str] = []
+        call_targets: dict[str, JsonObject] = {}
+        for call in _objects(function, "callSites"):
+            name = _string(call.get("name"), "call.name")
+            target_id = _resolve_call(name, function, lookup)
+            if target_id is None or target_id == source_id:
+                unresolved.append(name)
+                continue
+            call_targets.setdefault(target_id, call)
+        for target_id, call in call_targets.items():
+            anchor_fact = {
+                **call,
+                "path": function["path"],
+                "extractorId": function["extractorId"],
+            }
+            upsert_edges.append(
+                {
+                    "id": _edge_id("CALLS", source_id, target_id),
+                    "sourceId": source_id,
+                    "targetId": target_id,
+                    "kind": "calls",
+                    "source": "DERIVED",
+                    "snapshotId": snapshot_id,
+                    "anchors": [_anchor(snapshot_id, anchor_fact)],
+                }
+            )
+        details = _object(function_nodes[source_id].get("details"), "node.details")
+        details["unresolvedCalls"] = sorted(set(unresolved))
+
+    coverage_status = coverage.get("status")
+    if coverage_status == "OBSERVED":
+        evidence_id = f"EVIDENCE-COVERAGE-{snapshot_id.rsplit('-', 1)[-1]}"
+        upsert_nodes.append(
+            {
+                "id": evidence_id,
+                "layer": "verification",
+                "kind": "Evidence",
+                "title": "函数覆盖率证据",
+                "summary": "由现有测试覆盖率产物导入的函数级运行证据。",
+                "source": "OBSERVED",
+                "details": {
+                    "artifact": coverage["artifact"],
+                    "measuredFunctionCount": coverage["measuredFunctionCount"],
+                    "coveredFunctionCount": coverage["coveredFunctionCount"],
+                    "uncoveredFunctionCount": coverage["uncoveredFunctionCount"],
+                },
+            }
+        )
+        for function_id, node in function_nodes.items():
+            value = _object(
+                _object(node.get("details"), "node.details").get("coverage"), "coverage"
+            )
+            if value.get("status") == "UNKNOWN":
+                continue
+            upsert_edges.append(
+                {
+                    "id": _edge_id("VERIFIED", function_id, evidence_id),
+                    "sourceId": function_id,
+                    "targetId": evidence_id,
+                    "kind": "verified_by",
+                    "source": "OBSERVED",
+                }
+            )
+
+    return {
+        "baseRevisionId": revision["id"],
+        "upsertNodes": upsert_nodes,
+        "deleteNodeIds": sorted(previous_implementation_ids),
+        "upsertEdges": upsert_edges,
+        "deleteEdgeIds": delete_edge_ids,
+    }
+
+
 def changed_ids(base: JsonObject | None, current: JsonObject) -> tuple[set[str], set[str]]:
     if base is None:
         graph = _object(current.get("graph"), "graph")
@@ -741,6 +933,62 @@ def _relative_path(value: JsonValue | None, name: str) -> str:
     if invalid:
         raise GraphError(f"{name} 必须是仓库内规范化相对路径")
     return path
+
+
+def _module_id(path: str) -> str:
+    return f"IMPL-MODULE-{hashlib.sha256(path.encode()).hexdigest()[:16].upper()}"
+
+
+def _edge_id(kind: str, source_id: str, target_id: str) -> str:
+    value = hashlib.sha256(f"{kind}:{source_id}:{target_id}".encode()).hexdigest()[:16].upper()
+    return f"EDGE-IMPL-{kind}-{value}"
+
+
+def _anchor(snapshot_id: str, fact: JsonObject) -> JsonObject:
+    return {
+        "snapshotId": snapshot_id,
+        "path": fact["path"],
+        "range": fact["range"],
+        "extractorId": fact["extractorId"],
+        "fingerprint": fact["fingerprint"],
+    }
+
+
+def _function_lookup(functions: list[JsonObject]) -> dict[str, list[JsonObject]]:
+    lookup: dict[str, list[JsonObject]] = {}
+    for function in functions:
+        qualified = _string(function.get("qualifiedName"), "function.qualifiedName")
+        name = _string(function.get("name"), "function.name")
+        for key in {qualified, name, qualified.rsplit(".", 1)[-1]}:
+            lookup.setdefault(key, []).append(function)
+    return lookup
+
+
+def _resolve_call(
+    name: str,
+    source: JsonObject,
+    lookup: dict[str, list[JsonObject]],
+) -> str | None:
+    path = _string(source.get("path"), "function.path")
+    qualified = _string(source.get("qualifiedName"), "function.qualifiedName")
+    normalized = name.removeprefix("self.").removeprefix("cls.")
+    short = normalized.rsplit(".", 1)[-1]
+    scope = qualified.rsplit(".", 1)[0] if "." in qualified else ""
+    candidates = [
+        *lookup.get(normalized, []),
+        *lookup.get(f"{scope}.{short}", []),
+        *lookup.get(short, []),
+    ]
+    unique = {
+        _string(candidate.get("id"), "function.id"): candidate
+        for candidate in candidates
+        if candidate.get("path") == path
+    }
+    if len(unique) != 1:
+        unique = {
+            _string(candidate.get("id"), "function.id"): candidate for candidate in candidates
+        }
+    return next(iter(unique)) if len(unique) == 1 else None
 
 
 def _dot(value: str) -> str:

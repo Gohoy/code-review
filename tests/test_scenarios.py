@@ -16,12 +16,15 @@ from app.graph import (
     GraphError,
     JsonObject,
     changed_ids,
+    code_index_diff,
     graph_hash,
     load_object,
     requirement_context,
     to_dot,
     validate_document,
+    with_code_snapshot,
 )
+from app.indexer import index_repository
 from app.prompt import Prompt
 from app.runner import Runner, RunnerError
 from app.service import ReviewService
@@ -66,9 +69,76 @@ class FakeRunner:
         worktree: Path | None = None,
     ) -> JsonObject:
         del worktree
-        if self.error and task == "REQUIREMENT_CHANGE":
+        if self.error and task in {"REQUIREMENT_CHANGE", "REPOSITORY_BASELINE"}:
             raise self.error
         store = self._store()
+        if task == "REPOSITORY_BASELINE":
+            document = store.current_document()
+            revision = cast(JsonObject, document["revision"])
+            function: JsonObject = {
+                "id": "IMPL-SYMBOL-BASELINE-TEST",
+                "name": "baseline",
+                "qualifiedName": "baseline",
+                "kind": "function_definition",
+                "path": "app/example.py",
+                "range": {
+                    "start": {"line": 1, "column": 1},
+                    "end": {"line": 2, "column": 1},
+                },
+                "fingerprint": "a" * 64,
+                "snapshotId": "SNAPSHOT-REPOSITORY-LOCAL-BASELINE01",
+                "extractorId": "PYTHON-AST",
+                "graphNodeIds": [],
+                "mappedNodeIds": [],
+                "calls": [],
+                "callSites": [],
+                "coverage": {
+                    "status": "UNKNOWN",
+                    "artifact": None,
+                    "coveredLineCount": None,
+                },
+            }
+            index: JsonObject = {
+                "snapshot": {
+                    "id": "SNAPSHOT-REPOSITORY-LOCAL-BASELINE01",
+                    "repositoryId": "REPOSITORY-LOCAL",
+                    "commitSha": "1" * 40,
+                    "treeHash": "2" * 40,
+                    "scanHash": "3" * 64,
+                    "roots": ["app"],
+                    "extractors": [{"id": "PYTHON-AST", "version": "3.13"}],
+                },
+                "coverage": {
+                    "functionCount": 1,
+                    "graphFunctionCount": 0,
+                    "mappedFunctionCount": 0,
+                    "unmappedFunctionCount": 1,
+                    "status": "UNKNOWN",
+                    "measuredFunctionCount": 0,
+                    "coveredFunctionCount": 0,
+                    "uncoveredFunctionCount": 0,
+                    "artifact": None,
+                },
+                "fileFacts": [
+                    {
+                        "path": "app/example.py",
+                        "extractorId": "PYTHON-AST",
+                        "fingerprint": "b" * 64,
+                        "range": {
+                            "start": {"line": 1, "column": 0},
+                            "end": {"line": 2, "column": 1},
+                        },
+                    }
+                ],
+                "functions": [function],
+                "errors": [],
+            }
+            store.sync_code_index(agent_run_id, index)
+            return {
+                "status": "AWAITING_APPROVAL",
+                "reply": "代码基线候选已生成。",
+                "focusNodeIds": ["SCN-REPOSITORY-BASELINE-001"],
+            }
         if task == "REQUIREMENT_CHANGE":
             document = store.current_document()
             diff = self.diff(document)
@@ -656,11 +726,61 @@ def test_启动时沿同一revision链加载内置候选(tmp_path: Path, scenari
     store.initialize(approved)
     store.initialize(stale, (base, candidate))
     previous = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-011.json")
-    store.initialize(seed(), (base, candidate, previous))
+    current_base = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-012.json")
+    store.initialize(seed(), (base, candidate, previous, current_base))
     current = store.state()["revision"]["revision"]
-    assert current["id"] == "REV-REVIEW-TOOL-012"
+    assert current["id"] == "REV-REVIEW-TOOL-013"
     assert current["contentHash"] == seed()["revision"]["contentHash"]
     assert scenario_id.startswith("SCN-")
+
+
+def test_SCN_REPOSITORY_BASELINE_001_页面任务写入全部函数候选(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        service = make_service(tmp_path, FakeRunner())
+        await service.initialize()
+        agent_run_id = await service.start_repository_baseline()
+        running = await service.state()
+        assert running["agentRun"]["id"] == agent_run_id
+        assert running["agentRun"]["task"] == "REPOSITORY_BASELINE"
+        await settle(service)
+        state = await service.state()
+        implementation = [
+            node
+            for node in state["revision"]["graph"]["nodes"]
+            if node["layer"] == "implementation"
+        ]
+        assert any(node["id"] == "IMPL-SYMBOL-BASELINE-TEST" for node in implementation)
+        assert state["revision"]["revision"]["status"] == "CANDIDATE"
+        assert state["agentRun"]["status"] == "AWAITING_APPROVAL"
+
+    run(scenario())
+
+
+def test_SCN_REPOSITORY_BASELINE_001_确定性同步函数调用和覆盖证据(tmp_path: Path) -> None:
+    (tmp_path / "service.py").write_text(
+        "def caller():\n    callee()\n\ndef callee():\n    return 1\n", encoding="utf-8"
+    )
+    (tmp_path / "coverage.json").write_text(
+        '{"files":{"service.py":{"executed_lines":[1,2]}}}', encoding="utf-8"
+    )
+    current = seed()
+    graph = cast(JsonObject, current["graph"])
+    index = index_repository(
+        tmp_path,
+        ["service.py"],
+        "1" * 40,
+        "2" * 40,
+        graph,
+    )
+    base = with_code_snapshot(current, cast(JsonObject, index["snapshot"]))
+    diff = code_index_diff(base, index)
+    nodes = cast(list[JsonObject], diff["upsertNodes"])
+    edges = cast(list[JsonObject], diff["upsertEdges"])
+
+    assert sum(node["kind"] == "Symbol" for node in nodes) == 2
+    assert sum(edge["kind"] == "calls" for edge in edges) == 1
+    assert sum(node["kind"] == "Evidence" for node in nodes) == 1
+    assert sum(edge["kind"] == "verified_by" for edge in edges) == 2
 
 
 @pytest.mark.parametrize("scenario_id", ["SCN-CODE-AUTHORITY-001"], ids=lambda value: value)

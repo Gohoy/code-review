@@ -57,6 +57,12 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
             {"agentRunId": agent_run_id, "status": "AGENT_RUNNING"}, status_code=202
         )
 
+    async def repository_baseline(_: Request) -> JSONResponse:
+        agent_run_id = await service.start_repository_baseline()
+        return JSONResponse(
+            {"agentRunId": agent_run_id, "status": "AGENT_RUNNING"}, status_code=202
+        )
+
     async def approve(request: Request) -> JSONResponse:
         body = await _body(request)
         content_hash = body.get("contentHash")
@@ -78,6 +84,7 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
         Route("/api/graph.svg", graph),
         Route("/api/requirement/{focus_id:str}/context", requirement_context),
         Route("/api/message", message, methods=["POST"]),
+        Route("/api/repository/baseline", repository_baseline, methods=["POST"]),
         Route(
             "/api/revision/{revision_id:str}/approve-and-start",
             approve,

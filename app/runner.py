@@ -18,7 +18,8 @@ from app.prompt import Prompt, PromptCatalog
 ALLOWED_EXECUTABLES = frozenset({"codex", "git", "dot", "npm", "uv"})
 VALIDATION_COMMANDS = (
     ("uv", "sync", "--frozen"),
-    ("uv", "run", "pytest"),
+    ("uv", "run", "coverage", "run", "-m", "pytest"),
+    ("uv", "run", "coverage", "json", "-o", "coverage.json"),
     ("uv", "run", "ruff", "check", "."),
     ("uv", "run", "ruff", "format", "--check", "."),
     ("npm", "--prefix", "prototype", "ci"),

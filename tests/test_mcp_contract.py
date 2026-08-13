@@ -49,6 +49,7 @@ def test_SCN_AGENT_MCP_ORCHESTRATION_001_标准客户端发现能力(tmp_path: P
 
         assert tools == {
             "repository_index",
+            "repository_sync",
             "graph_query",
             "graph_create_candidate",
             "revision_request_approval",

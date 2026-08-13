@@ -151,6 +151,35 @@ async def repository_index() -> JsonObject:
 
 
 @mcp.tool()
+async def repository_sync() -> JsonObject:
+    """确定性同步当前固定快照中的全部函数、可解析调用关系和已有覆盖率证据。"""
+
+    async def operation() -> JsonObject:
+        snapshot = await runner.repository_snapshot()
+        paths = snapshot["paths"]
+        if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+            raise StoreError("Git 文件清单格式无效")
+        document = store.current_document()
+        index = await asyncio.to_thread(
+            index_repository,
+            settings.repository,
+            cast(list[str], paths),
+            str(snapshot["commitSha"]),
+            str(snapshot["treeHash"]),
+            cast(JsonObject, document["graph"]),
+        )
+        candidate = await asyncio.to_thread(store.sync_code_index, _agent_id(), index)
+        revision = cast(JsonObject, candidate["revision"])
+        return {
+            "revision": revision,
+            "coverage": index["coverage"],
+            "errors": index["errors"],
+        }
+
+    return await _tool("repository_sync", "同步全部代码事实", operation)
+
+
+@mcp.tool()
 async def graph_query(node_id: str) -> JsonObject:
     """读取一个统一图节点、一跳邻居与关系。"""
 
@@ -289,6 +318,7 @@ async def _tool(
 ) -> JsonObject:
     expected_task = {
         "repository_index": {"REPOSITORY_BASELINE", "REQUIREMENT_CHANGE"},
+        "repository_sync": {"REPOSITORY_BASELINE"},
         "graph_query": {"REPOSITORY_BASELINE", "REQUIREMENT_CHANGE", "SEMANTIC_REVIEW"},
         "graph_create_candidate": {"REPOSITORY_BASELINE", "REQUIREMENT_CHANGE"},
         "revision_request_approval": {"REPOSITORY_BASELINE", "REQUIREMENT_CHANGE"},

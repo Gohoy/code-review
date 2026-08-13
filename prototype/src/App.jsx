@@ -21,6 +21,7 @@ import {
 import {
   CheckCircleOutlined,
   CodeOutlined,
+  DatabaseOutlined,
   CommentOutlined,
   FullscreenOutlined,
   InfoCircleOutlined,
@@ -264,6 +265,7 @@ export function ReviewApp() {
   const [state, setState] = useState(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [baselineStarting, setBaselineStarting] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [viewMode, setViewMode] = useState("changes");
   const [layer, setLayer] = useState("requirement");
@@ -367,6 +369,21 @@ export function ReviewApp() {
     }
   }
 
+  async function startBaseline() {
+    if (baselineStarting || state.requirement.operationStatus !== "IDLE") return;
+    setBaselineStarting(true);
+    try {
+      await request("/api/repository/baseline", { method: "POST" });
+      toast.success("仓库基线任务已启动");
+      setLayer("implementation");
+      await refresh();
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setBaselineStarting(false);
+    }
+  }
+
   function activateNode(event) {
     if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
     const node = event.target.closest?.("g.node");
@@ -463,6 +480,14 @@ export function ReviewApp() {
               </Space>
             </div>
             <Space>
+              <Button
+                icon={<DatabaseOutlined />}
+                loading={baselineStarting}
+                disabled={state.requirement.operationStatus !== "IDLE"}
+                onClick={startBaseline}
+              >
+                {state.codeMetrics?.functionCount ? "刷新代码基线" : "生成代码基线"}
+              </Button>
               <Button icon={<CommentOutlined />} onClick={() => setConversationOpen(true)}>对话</Button>
               {!desktop && <Button icon={<MenuOutlined />} disabled={!selected} onClick={() => setInspectorOpen(true)}>详情</Button>}
             </Space>
@@ -514,6 +539,9 @@ export function ReviewApp() {
           <Flex justify="space-between" align="center" gap={16} wrap>
             <Space orientation="vertical" size={2}>
               <Text>层级计数：需求 {state.layerCounts.requirement} · 技术设计 {state.layerCounts.design} · 代码实现 {state.layerCounts.implementation} · 测试证据 {state.layerCounts.verification}</Text>
+              <Text type="secondary">
+                函数 {state.codeMetrics?.functionCount || 0} · 已映射 {state.codeMetrics?.mappedFunctionCount || 0} · 覆盖率 {state.codeMetrics?.coverageStatus === "OBSERVED" ? `${state.codeMetrics.coveredFunctionCount} 已覆盖 / ${state.codeMetrics.uncoveredFunctionCount} 未覆盖` : "暂无真实产物"}
+              </Text>
               {state.implementationRun && <Text type="secondary" aria-live="polite">自动交付 {runStatusTitles[state.implementationRun.status] || state.implementationRun.status}：{state.implementationRun.summary || "等待执行"}</Text>}
             </Space>
             <Space wrap>
