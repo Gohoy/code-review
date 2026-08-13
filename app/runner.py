@@ -230,6 +230,7 @@ class Runner:
         target = (worktree / relative_repository).resolve()
         if not target.is_dir():
             raise RunnerError("worktree 中不存在目标仓库目录")
+        linked_dependencies: list[Path] = []
         for relative_dependency in (Path(".venv"), Path("prototype/node_modules")):
             source_dependency = repository / relative_dependency
             target_dependency = target / relative_dependency
@@ -252,9 +253,40 @@ class Runner:
                 continue
             await asyncio.to_thread(target_dependency.parent.mkdir, parents=True, exist_ok=True)
             await asyncio.to_thread(target_dependency.symlink_to, source_dependency, True)
+            linked_dependencies.append(relative_dependency)
+        if linked_dependencies:
+            git_dir_text = await self._run(
+                ["git", "-C", str(target), "rev-parse", "--git-common-dir"],
+                cwd=target,
+                timeout=30,
+            )
+            git_dir = Path(git_dir_text.strip())
+            if not git_dir.is_absolute():
+                git_dir = (target / git_dir).resolve()
+            exclude_path = git_dir / "info" / "exclude"
+            await asyncio.to_thread(exclude_path.parent.mkdir, parents=True, exist_ok=True)
+            existing_excludes = (
+                await asyncio.to_thread(exclude_path.read_text, encoding="utf-8")
+                if exclude_path.is_file()
+                else ""
+            )
+            dependency_excludes = "".join(f"/{path.as_posix()}\n" for path in linked_dependencies)
+            await asyncio.to_thread(
+                exclude_path.write_text,
+                existing_excludes + dependency_excludes,
+                encoding="utf-8",
+            )
         return target
 
     async def cleanup_worktree(self, run_id: str, stored_worktree: Path) -> None:
+        run_path = Path(run_id)
+        if (
+            not run_id
+            or run_path.is_absolute()
+            or len(run_path.parts) != 1
+            or run_id in {".", ".."}
+        ):
+            raise RunnerError("开发运行 ID 必须是单个目录名，拒绝清理")
         root = self.settings.worktree_root.resolve()
         expected_worktree = root / run_id
         try:
@@ -264,19 +296,20 @@ class Runner:
         if resolved_worktree != expected_worktree:
             raise RunnerError(f"开发 worktree 不匹配受管路径，拒绝清理：{resolved_worktree}")
         repository = self.settings.repository.resolve()
-        await self._run(
-            [
-                "git",
-                "-C",
-                str(repository),
-                "worktree",
-                "remove",
-                "--force",
-                str(resolved_worktree),
-            ],
-            cwd=repository,
-            timeout=120,
-        )
+        if resolved_worktree.exists():
+            await self._run(
+                [
+                    "git",
+                    "-C",
+                    str(repository),
+                    "worktree",
+                    "remove",
+                    "--force",
+                    str(resolved_worktree),
+                ],
+                cwd=repository,
+                timeout=120,
+            )
         await self._run(
             ["git", "-C", str(repository), "worktree", "prune"],
             cwd=repository,
@@ -384,7 +417,8 @@ class Runner:
                 violations.append(f"{path}：批准模型或 JSON Schema 不可修改")
             if path == SEMANTIC_VALIDATOR_PATH:
                 violations.append(f"{path}：统一图语义校验器不可修改")
-            if path in tracked and _is_test_path(path):
+            scenario_test = any(scenario_id in path for scenario_id in approved_scenario_ids)
+            if path in tracked and _is_test_path(path) and not scenario_test:
                 violations.append(f"{path}：基线已有测试不可修改或删除")
             elif path not in tracked and _is_test_path(path):
                 added_tests.append(path)

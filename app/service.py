@@ -56,7 +56,10 @@ class ReviewService:
         self.tasks: set[asyncio.Task[None]] = set()
 
     async def initialize(self) -> None:
+        terminal_worktrees = await asyncio.to_thread(self.store.terminal_worktrees)
         await asyncio.to_thread(self.store.initialize, self.seed, self.history)
+        for run_id, worktree in terminal_worktrees:
+            await self._cleanup_worktree(run_id, worktree)
         self.dependencies = await self.runner.dependency_status()
 
     async def close(self) -> None:
@@ -378,6 +381,31 @@ class ReviewService:
                         )
             except Exception:
                 logger.exception("记录 Agent 失败状态时再次失败")
+        finally:
+            if task in {"IMPLEMENTATION", "SEMANTIC_REVIEW"} and implementation_run_id:
+                try:
+                    run = await asyncio.to_thread(
+                        self.store.implementation_run, implementation_run_id
+                    )
+                except Exception:
+                    logger.exception("读取终态开发运行失败，无法清理 worktree")
+                else:
+                    if run.get("status") in {
+                        "COMPLETED",
+                        "FAILED",
+                        "BLOCKED",
+                        "NEEDS_INPUT",
+                    } and isinstance(run.get("worktree"), str):
+                        await self._cleanup_worktree(
+                            implementation_run_id, Path(cast(str, run["worktree"]))
+                        )
+
+    async def _cleanup_worktree(self, run_id: str, worktree: Path) -> None:
+        """尽力回收受管 worktree，且不覆盖原运行结果。"""
+        try:
+            await self.runner.cleanup_worktree(run_id, worktree)
+        except Exception:
+            logger.exception("清理开发 worktree 失败：%s", run_id)
 
     async def _review(self, run_id: str, run: JsonObject) -> None:
         agent_run_id, document = await asyncio.to_thread(self.store.begin_review_agent, run_id)

@@ -214,6 +214,7 @@ class Store:
                 """,
                 (now,),
             )
+
             connection.execute(
                 """
                 UPDATE agent_run
@@ -267,6 +268,26 @@ class Store:
                     "SELECT base_revision_id FROM revision WHERE id = ?", (ancestor_id,)
                 ).fetchone()
                 ancestor_id = str(parent["base_revision_id"]) if parent and parent[0] else None
+
+    def terminal_worktrees(self) -> tuple[tuple[str, Path], ...]:
+        """读取应用启动前已经进入终态的受管 worktree。"""
+        if not self.path.is_file():
+            return ()
+        with self._connect() as connection:
+            table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'implementation_run'"
+            ).fetchone()
+            if table is None:
+                return ()
+            rows = connection.execute(
+                """
+                SELECT id, worktree FROM implementation_run
+                WHERE status IN ('COMPLETED', 'FAILED', 'BLOCKED', 'NEEDS_INPUT')
+                  AND worktree IS NOT NULL
+                ORDER BY created_at ASC
+                """
+            )
+            return tuple((str(row["id"]), Path(str(row["worktree"]))) for row in rows)
 
     def state(self) -> JsonObject:
         with self._connect() as connection:
