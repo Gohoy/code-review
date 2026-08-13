@@ -109,7 +109,11 @@ class ReviewService:
         revision = cast(JsonObject, document["revision"])
         if revision.get("id") != revision_id:
             raise GraphError("revision 已变化，请刷新状态后重试")
-        return document
+        immutable_document = copy.deepcopy(document)
+        immutable_revision = cast(JsonObject, immutable_document["revision"])
+        immutable_revision.pop("status", None)
+        immutable_revision.pop("approvable", None)
+        return immutable_document
 
     async def graph_svg(
         self, revision_id: str, layers: set[str], focus_id: str | None

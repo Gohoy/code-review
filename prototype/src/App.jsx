@@ -320,7 +320,13 @@ export function ReviewApp() {
         document = await request(`/api/revision/${encodeURIComponent(revisionId)}`);
         loadedRevisionRef.current = document;
       }
-      setState({ ...status, revision: document });
+      setState({
+        ...status,
+        revision: {
+          ...document,
+          revision: { ...document.revision, ...status.revision },
+        },
+      });
     } catch (error) {
       toast.error(error.message);
     }

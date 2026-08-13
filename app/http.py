@@ -34,11 +34,20 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
     async def revision(request: Request) -> JSONResponse:
         document = await service.revision(request.path_params["revision_id"])
         content_hash = cast(JsonObject, document["revision"])["contentHash"]
+        etag = f'"{content_hash}"'
+        if request.headers.get("if-none-match") == etag:
+            return Response(
+                status_code=304,
+                headers={
+                    "Cache-Control": "private, max-age=31536000, immutable",
+                    "ETag": etag,
+                },
+            )
         return JSONResponse(
             document,
             headers={
                 "Cache-Control": "private, max-age=31536000, immutable",
-                "ETag": f'"{content_hash}"',
+                "ETag": etag,
             },
         )
 
