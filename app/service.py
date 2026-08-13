@@ -58,6 +58,11 @@ class ReviewService:
         nodes = cast(list[JsonObject], graph["nodes"])
         state["changedNodeIds"] = sorted(node_ids)
         state["changedEdgeIds"] = sorted(edge_ids)
+        state["changedScenarioIds"] = sorted(
+            str(node["id"])
+            for node in nodes
+            if node.get("id") in node_ids and node.get("kind") == "Scenario"
+        )
         state["approvalErrors"] = approval_errors(document)
         state["layerCounts"] = {
             layer: sum(node.get("layer") == layer for node in nodes)
@@ -222,6 +227,7 @@ class ReviewService:
             "approvedRevisionId": revision["id"],
             "approvedContentHash": revision["contentHash"],
             "expectedFinalStatus": ["COMPLETED", "NEEDS_INPUT"],
+            **(await self._revision_change_context(document)),
         }
         prompt = await self._record_prompt(agent_run_id, "IMPLEMENTATION", context)
         self._start(self._run_agent("IMPLEMENTATION", agent_run_id, prompt, run_id))
@@ -293,6 +299,7 @@ class ReviewService:
             "approvedContentHash": revision["contentHash"],
             "changeResource": f"change://{run_id}",
             "expectedFinalStatus": ["COMPLETED", "BLOCKED"],
+            **(await self._revision_change_context(document)),
         }
         prompt = await self._record_prompt(agent_run_id, "SEMANTIC_REVIEW", context)
         await self._run_agent(
@@ -302,6 +309,25 @@ class ReviewService:
             run_id,
             Path(worktree_value),
         )
+
+    async def _revision_change_context(self, document: JsonObject) -> JsonObject:
+        """生成实现与语义 Review 共用的确定性 revision 差异上下文。"""
+        state = await asyncio.to_thread(self.store.state)
+        base_value = state.get("baseRevision")
+        base = cast(JsonObject, base_value) if isinstance(base_value, dict) else None
+        node_ids, edge_ids = changed_ids(base, document)
+        graph = cast(JsonObject, document["graph"])
+        nodes = cast(list[JsonObject], graph["nodes"])
+        scenario_ids = {
+            str(node["id"])
+            for node in nodes
+            if node.get("id") in node_ids and node.get("kind") == "Scenario"
+        }
+        return {
+            "changedNodeIds": sorted(node_ids),
+            "changedEdgeIds": sorted(edge_ids),
+            "changedScenarioIds": sorted(scenario_ids),
+        }
 
     async def _record_prompt(self, agent_run_id: str, task: str, context: JsonObject) -> Prompt:
         prompt = self.runner.prompt(task, context)
