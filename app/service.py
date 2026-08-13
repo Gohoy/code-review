@@ -24,6 +24,22 @@ from app.store import Store
 logger = logging.getLogger(__name__)
 
 
+def revision_change_context(base: JsonObject | None, document: JsonObject) -> JsonObject:
+    """返回一个 revision 相对基线的稳定变化清单。"""
+    node_ids, edge_ids = changed_ids(base, document)
+    graph = cast(JsonObject, document["graph"])
+    nodes = cast(list[JsonObject], graph["nodes"])
+    return {
+        "changedNodeIds": sorted(node_ids),
+        "changedEdgeIds": sorted(edge_ids),
+        "changedScenarioIds": sorted(
+            str(node["id"])
+            for node in nodes
+            if node.get("id") in node_ids and node.get("kind") == "Scenario"
+        ),
+    }
+
+
 class ReviewService:
     def __init__(
         self,
@@ -54,16 +70,9 @@ class ReviewService:
         document = cast(JsonObject, state["revision"])
         base_value = state.get("baseRevision")
         base = cast(JsonObject, base_value) if isinstance(base_value, dict) else None
-        node_ids, edge_ids = changed_ids(base, document)
+        state.update(revision_change_context(base, document))
         graph = cast(JsonObject, document["graph"])
         nodes = cast(list[JsonObject], graph["nodes"])
-        state["changedNodeIds"] = sorted(node_ids)
-        state["changedEdgeIds"] = sorted(edge_ids)
-        state["changedScenarioIds"] = sorted(
-            str(node["id"])
-            for node in nodes
-            if node.get("id") in node_ids and node.get("kind") == "Scenario"
-        )
         state["approvalErrors"] = approval_errors(document)
         state["layerCounts"] = {
             layer: sum(node.get("layer") == layer for node in nodes)
@@ -400,19 +409,7 @@ class ReviewService:
         state = await asyncio.to_thread(self.store.state)
         base_value = state.get("baseRevision")
         base = cast(JsonObject, base_value) if isinstance(base_value, dict) else None
-        node_ids, edge_ids = changed_ids(base, document)
-        graph = cast(JsonObject, document["graph"])
-        nodes = cast(list[JsonObject], graph["nodes"])
-        scenario_ids = {
-            str(node["id"])
-            for node in nodes
-            if node.get("id") in node_ids and node.get("kind") == "Scenario"
-        }
-        return {
-            "changedNodeIds": sorted(node_ids),
-            "changedEdgeIds": sorted(edge_ids),
-            "changedScenarioIds": sorted(scenario_ids),
-        }
+        return revision_change_context(base, document)
 
     async def _record_prompt(self, agent_run_id: str, task: str, context: JsonObject) -> Prompt:
         prompt = self.runner.prompt(task, context)

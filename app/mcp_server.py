@@ -15,6 +15,7 @@ from app.graph import JsonObject, approval_errors, canonical_json, code_ownershi
 from app.indexer import index_repository
 from app.prompt import PromptCatalog
 from app.runner import VALIDATION_COMMANDS, Runner
+from app.service import revision_change_context
 from app.store import StoreError
 
 settings = Settings.from_env()
@@ -273,13 +274,12 @@ async def test_run() -> JsonObject:
         run_id = _implementation_id()
         worktree = await asyncio.to_thread(store.begin_test, run_id)
         try:
-            document = store.current_document()
-            graph = cast(JsonObject, document["graph"])
-            scenario_ids = frozenset(
-                str(node["id"])
-                for node in cast(list[JsonObject], graph["nodes"])
-                if node.get("kind") == "Scenario" and str(node.get("id", "")).startswith("SCN-")
-            )
+            state = store.state()
+            document = cast(JsonObject, state["revision"])
+            base_value = state.get("baseRevision")
+            base = cast(JsonObject, base_value) if isinstance(base_value, dict) else None
+            context = revision_change_context(base, document)
+            scenario_ids = frozenset(cast(list[str], context["changedScenarioIds"]))
             summary = await runner.verify(worktree, scenario_ids)
         except Exception as error:
             await asyncio.to_thread(store.finish_test, run_id, False, str(error))
