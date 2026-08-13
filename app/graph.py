@@ -500,6 +500,31 @@ def requirement_context(document: JsonObject, focus_id: str) -> JsonObject:
     }
 
 
+def node_context(document: JsonObject, focus_id: str) -> JsonObject:
+    """返回任意统一图节点及一跳关系，供 MCP Agent 精确读取。"""
+    graph = _object(document.get("graph"), "graph")
+    nodes = {_string(node.get("id"), "id"): node for node in _objects(graph, "nodes")}
+    focus = nodes.get(focus_id)
+    if focus is None:
+        raise GraphError("统一图节点不存在")
+    edges = [
+        edge
+        for edge in _objects(graph, "edges")
+        if focus_id in {edge.get("sourceId"), edge.get("targetId")}
+    ]
+    neighbor_ids = {
+        _string(edge.get("targetId"), "targetId")
+        if edge.get("sourceId") == focus_id
+        else _string(edge.get("sourceId"), "sourceId")
+        for edge in edges
+    }
+    return {
+        "node": focus,
+        "neighbors": [nodes[node_id] for node_id in sorted(neighbor_ids)],
+        "edges": edges,
+    }
+
+
 def _trace_targets(edges: list[JsonObject], starts: set[str]) -> set[str]:
     result = set(starts)
     pending = list(starts)

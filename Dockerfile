@@ -17,6 +17,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 COPY app/ app/
 COPY model/ model/
+COPY prompt/ prompt/
+COPY AGENTS.md ./
 COPY --from=web /build/dist/client/ prototype/dist/client/
 
 ENV SDBP_REVIEW_HOST=0.0.0.0

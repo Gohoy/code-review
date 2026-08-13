@@ -43,11 +43,21 @@ const layerTitles = {
 const runStatusTitles = {
   PENDING: "等待开发",
   RUNNING: "正在开发",
-  VERIFYING: "正在验证",
+  TESTING: "正在验证",
+  VERIFIED: "验证通过",
+  REVIEWING: "正在语义 Review",
+  REVIEW_PASSED: "语义 Review 通过",
   MERGING: "正在合并",
   COMPLETED: "已完成",
   NEEDS_INPUT: "需要补充信息",
+  BLOCKED: "已阻断",
   FAILED: "失败",
+};
+const agentTaskTitles = {
+  REPOSITORY_BASELINE: "仓库基线建模",
+  REQUIREMENT_CHANGE: "需求理解与设计",
+  IMPLEMENTATION: "代码实现与测试",
+  SEMANTIC_REVIEW: "语义 Review 与交付",
 };
 const sourceTitles = {
   DECLARED: "已声明需求",
@@ -66,7 +76,7 @@ async function request(url, options) {
 
 function Conversation({ state, draft, setDraft, sending, onSubmit, inputRef }) {
   const messages = state?.messages || [];
-  const modeling = state?.requirement?.operationStatus === "MODELING";
+  const agentRunning = state?.requirement?.operationStatus === "AGENT_RUNNING";
   return (
     <Flex vertical className="panel conversation-panel">
       <div className="panel-heading"><Title level={4}>需求对话</Title></div>
@@ -93,7 +103,7 @@ function Conversation({ state, draft, setDraft, sending, onSubmit, inputRef }) {
           );
         })}
       </div>
-      {modeling && <Spin size="small" description="AI 正在更新统一图…"><div className="thinking-space" /></Spin>}
+      {agentRunning && <Spin size="small" description="Agent 正在读取统一图并调用工具…"><div className="thinking-space" /></Spin>}
       <div className="composer">
         <Input.TextArea
           ref={inputRef}
@@ -115,7 +125,7 @@ function Conversation({ state, draft, setDraft, sending, onSubmit, inputRef }) {
             type="primary"
             icon={<SendOutlined />}
             aria-label="发送需求"
-            disabled={!draft.trim() || modeling}
+            disabled={!draft.trim() || agentRunning}
             loading={sending}
             onClick={onSubmit}
           />
@@ -208,6 +218,41 @@ function Inspector({ node, graph, changedNodeIds, context, contextLoading, codeO
       <Divider />
       <Text type="secondary" copyable>{node.id}</Text>
     </div>
+  );
+}
+
+function AgentActivity({ agent, tools }) {
+  if (!agent) return null;
+  return (
+    <Collapse
+      size="small"
+      bordered={false}
+      items={[{
+        key: "agent",
+        label: (
+          <Space wrap>
+            <Text strong>{agentTaskTitles[agent.task] || agent.task}</Text>
+            <Tag color={agent.status === "RUNNING" ? "processing" : agent.status === "FAILED" ? "error" : "default"}>
+              {agent.status === "RUNNING" ? "Agent 运行中" : runStatusTitles[agent.status] || agent.status}
+            </Tag>
+            {agent.promptId && <Text type="secondary">{agent.promptId}@{agent.promptVersion}</Text>}
+          </Space>
+        ),
+        children: tools.length ? (
+          <Flex vertical gap={6}>
+            {tools.map((tool) => (
+              <Flex key={tool.id} justify="space-between" gap={12} wrap>
+                <Text code>{tool.name}</Text>
+                <Text type={tool.status === "FAILED" ? "danger" : "secondary"}>
+                  {tool.status === "RUNNING" ? "执行中" : tool.status === "FAILED" ? "失败" : "完成"}
+                  {tool.outputSummary ? ` · ${tool.outputSummary.slice(0, 100)}` : ""}
+                </Text>
+              </Flex>
+            ))}
+          </Flex>
+        ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Agent 尚未调用 MCP 工具" />,
+      }]}
+    />
   );
 }
 
@@ -395,6 +440,9 @@ export function ReviewApp() {
     .filter(([, value]) => String(value).startsWith("不可用"));
   const conversation = <Conversation state={state} draft={draft} setDraft={setDraft} sending={sending} onSubmit={submit} inputRef={inputRef} />;
   const inspector = <Inspector node={selected} graph={graph} changedNodeIds={state.changedNodeIds || []} context={requirementContext} contextLoading={contextLoading} codeOpen={codeOpen} setCodeOpen={setCodeOpen} />;
+  const tools = (state.toolInvocations || []).filter(
+    (tool) => tool.agentRunId === state.agentRun?.id,
+  ).reverse();
 
   return (
     <Layout className="review-shell">
@@ -462,6 +510,7 @@ export function ReviewApp() {
           ) : <Spin description="正在生成行为图…"><div className="graph-loading" /></Spin>}
         </Content>
         <Footer className="approval-bar">
+          <AgentActivity agent={state.agentRun} tools={tools} />
           <Flex justify="space-between" align="center" gap={16} wrap>
             <Space orientation="vertical" size={2}>
               <Text>层级计数：需求 {state.layerCounts.requirement} · 技术设计 {state.layerCounts.design} · 代码实现 {state.layerCounts.implementation} · 测试证据 {state.layerCounts.verification}</Text>

@@ -3,17 +3,18 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Coroutine
+from pathlib import Path
 from typing import cast
 
 from app.graph import (
     JsonObject,
-    apply_diff,
     approval_errors,
     changed_ids,
     requirement_context,
     to_dot,
 )
-from app.runner import Runner
+from app.prompt import Prompt
+from app.runner import Runner, prompt_input_hash
 from app.store import Store
 
 logger = logging.getLogger(__name__)
@@ -75,64 +76,124 @@ class ReviewService:
         state = await asyncio.to_thread(self.store.state)
         return requirement_context(cast(JsonObject, state["revision"]), focus_id)
 
-    async def submit_message(self, content: str) -> None:
-        document, messages = await asyncio.to_thread(self.store.begin_modeling, content)
-        self._start(self._model(document, messages))
+    async def submit_message(self, content: str) -> str:
+        agent_run_id, document, messages = await asyncio.to_thread(self.store.begin_agent, content)
+        revision = cast(JsonObject, document["revision"])
+        context: JsonObject = {
+            "agentRunId": agent_run_id,
+            "task": "REQUIREMENT_CHANGE",
+            "baseRevisionId": revision["id"],
+            "conversation": messages,
+            "expectedFinalStatus": ["AWAITING_APPROVAL", "NEEDS_INPUT"],
+        }
+        prompt = await self._record_prompt(agent_run_id, "REQUIREMENT_CHANGE", context)
+        self._start(self._run_agent("REQUIREMENT_CHANGE", agent_run_id, prompt))
+        return agent_run_id
 
     async def approve_and_start(self, revision_id: str, content_hash: str) -> str:
-        run_id, document = await asyncio.to_thread(
+        run_id, agent_run_id, document = await asyncio.to_thread(
             self.store.approve_and_create_run, revision_id, content_hash
         )
-        self._start(self._implement(run_id, document))
+        revision = cast(JsonObject, document["revision"])
+        context: JsonObject = {
+            "agentRunId": agent_run_id,
+            "implementationRunId": run_id,
+            "task": "IMPLEMENTATION",
+            "approvedRevisionId": revision["id"],
+            "approvedContentHash": revision["contentHash"],
+            "expectedFinalStatus": ["COMPLETED", "NEEDS_INPUT"],
+        }
+        prompt = await self._record_prompt(agent_run_id, "IMPLEMENTATION", context)
+        self._start(self._run_agent("IMPLEMENTATION", agent_run_id, prompt, run_id))
         return run_id
 
-    async def _model(self, document: JsonObject, messages: list[JsonObject]) -> None:
-        revision = cast(JsonObject, document["revision"])
-        base_revision_id = str(revision["id"])
+    async def _run_agent(
+        self,
+        task: str,
+        agent_run_id: str,
+        prompt: Prompt,
+        implementation_run_id: str | None = None,
+        worktree: Path | None = None,
+    ) -> None:
         try:
-            diff = await self.runner.model(document, messages)
-            revision_id = await asyncio.to_thread(self.store.next_revision_id)
-            candidate = apply_diff(document, diff, revision_id, self.store.graph_schema)
-            reply = diff.get("reply")
-            if not isinstance(reply, str):
-                raise ValueError("AI 回复缺失")
-            await asyncio.to_thread(
-                self.store.complete_modeling, base_revision_id, candidate, reply
+            result = await self.runner.agent(
+                task,
+                prompt,
+                agent_run_id,
+                implementation_run_id,
+                worktree,
             )
+            await asyncio.to_thread(self.store.finish_agent, agent_run_id, result)
+            if task == "IMPLEMENTATION" and result.get("status") == "COMPLETED":
+                if implementation_run_id is None:
+                    raise ValueError("实现 Agent 缺少开发运行 ID")
+                run = await asyncio.to_thread(self.store.implementation_run, implementation_run_id)
+                if run["status"] != "VERIFIED":
+                    raise ValueError("实现 Agent 未通过 MCP 完成固定测试")
+                await self._review(implementation_run_id, run)
+            if task == "SEMANTIC_REVIEW" and result.get("status") == "COMPLETED":
+                if implementation_run_id is None:
+                    raise ValueError("Review Agent 缺少开发运行 ID")
+                run = await asyncio.to_thread(self.store.implementation_run, implementation_run_id)
+                if run["status"] != "COMPLETED":
+                    raise ValueError("Review Agent 未通过 MCP 完成语义 Review 和合并")
         except Exception as error:
-            logger.exception("需求建模失败")
-            await asyncio.to_thread(self.store.fail_modeling, str(error))
+            logger.exception("Agent 运行失败")
+            try:
+                agent = await asyncio.to_thread(self.store.agent, agent_run_id)
+                if agent["status"] == "RUNNING":
+                    await asyncio.to_thread(self.store.fail_agent, agent_run_id, str(error))
+                if implementation_run_id is not None:
+                    run = await asyncio.to_thread(
+                        self.store.implementation_run, implementation_run_id
+                    )
+                    if run["status"] not in {
+                        "COMPLETED",
+                        "FAILED",
+                        "NEEDS_INPUT",
+                        "BLOCKED",
+                    }:
+                        await asyncio.to_thread(
+                            self.store.fail_run, implementation_run_id, str(error)
+                        )
+            except Exception:
+                logger.exception("记录 Agent 失败状态时再次失败")
 
-    async def _implement(self, run_id: str, document: JsonObject) -> None:
-        try:
-            worktree = await self.runner.create_worktree(run_id)
-            await asyncio.to_thread(self.store.start_run, run_id, worktree)
-            result = await self.runner.implement(document, worktree)
-            if result.get("status") != "COMPLETED":
-                await asyncio.to_thread(self.store.finish_run, run_id, result)
-                return
-            implementation_summary = str(result["summary"])
-            await asyncio.to_thread(
-                self.store.update_run_progress, run_id, "VERIFYING", implementation_summary
-            )
-            verification_summary = await self.runner.verify(worktree)
-            await asyncio.to_thread(
-                self.store.update_run_progress, run_id, "MERGING", verification_summary
-            )
-            revision = cast(JsonObject, document["revision"])
-            merge_summary = await self.runner.merge(worktree, str(revision["id"]))
-            await asyncio.to_thread(
-                self.store.finish_run,
-                run_id,
-                {
-                    "status": "COMPLETED",
-                    "summary": f"{implementation_summary}；{verification_summary}；{merge_summary}",
-                    "question": "",
-                },
-            )
-        except Exception as error:
-            logger.exception("隔离开发失败")
-            await asyncio.to_thread(self.store.fail_run, run_id, str(error))
+    async def _review(self, run_id: str, run: JsonObject) -> None:
+        agent_run_id, document = await asyncio.to_thread(self.store.begin_review_agent, run_id)
+        worktree_value = run.get("worktree")
+        if not isinstance(worktree_value, str):
+            raise ValueError("语义 Review 缺少开发 worktree")
+        revision = cast(JsonObject, document["revision"])
+        context: JsonObject = {
+            "agentRunId": agent_run_id,
+            "implementationRunId": run_id,
+            "task": "SEMANTIC_REVIEW",
+            "approvedRevisionId": revision["id"],
+            "approvedContentHash": revision["contentHash"],
+            "changeResource": f"change://{run_id}",
+            "expectedFinalStatus": ["COMPLETED", "BLOCKED"],
+        }
+        prompt = await self._record_prompt(agent_run_id, "SEMANTIC_REVIEW", context)
+        await self._run_agent(
+            "SEMANTIC_REVIEW",
+            agent_run_id,
+            prompt,
+            run_id,
+            Path(worktree_value),
+        )
+
+    async def _record_prompt(self, agent_run_id: str, task: str, context: JsonObject) -> Prompt:
+        prompt = self.runner.prompt(task, context)
+        await asyncio.to_thread(
+            self.store.record_agent_prompt,
+            agent_run_id,
+            prompt.id,
+            prompt.version,
+            prompt.hash,
+            prompt_input_hash(context),
+        )
+        return prompt
 
     def _start(self, coroutine: Coroutine[object, object, None]) -> None:
         task = asyncio.create_task(coroutine)

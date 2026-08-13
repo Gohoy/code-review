@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import sqlite3
 import subprocess
 from collections.abc import Callable, Coroutine
@@ -21,6 +22,7 @@ from app.graph import (
     to_dot,
     validate_document,
 )
+from app.prompt import Prompt
 from app.runner import Runner, RunnerError
 from app.service import ReviewService
 from app.store import REPOSITORY_ID, Store, StoreError
@@ -33,11 +35,16 @@ class FakeRunner:
         result: JsonObject | None = None,
         error: Exception | None = None,
         verification_error: Exception | None = None,
+        skip_test: bool = False,
+        review_status: str = "PASS",
     ) -> None:
         self.diff = diff or valid_diff
-        self.result = result or {"status": "COMPLETED", "summary": "开发完成", "question": ""}
+        self.result = result
         self.error = error
         self.verification_error = verification_error
+        self.skip_test = skip_test
+        self.review_status = review_status
+        self.store: Store | None = None
         self.worktree: Path | None = None
         self.implemented_hash: str | None = None
         self.verified = False
@@ -46,29 +53,112 @@ class FakeRunner:
     async def dependency_status(self) -> JsonObject:
         return {"codex": "可用", "git": "可用", "dot": "可用"}
 
-    async def model(self, document: JsonObject, _: list[JsonObject]) -> JsonObject:
-        if self.error:
+    def prompt(self, task: str, context: JsonObject) -> Prompt:
+        text = f"{task}:{context}"
+        return Prompt(task.lower(), "test", text, hashlib.sha256(text.encode()).hexdigest())
+
+    async def agent(
+        self,
+        task: str,
+        _: Prompt,
+        agent_run_id: str,
+        implementation_run_id: str | None = None,
+        worktree: Path | None = None,
+    ) -> JsonObject:
+        del worktree
+        if self.error and task == "REQUIREMENT_CHANGE":
             raise self.error
-        return self.diff(document)
-
-    async def create_worktree(self, _: str) -> Path:
-        self.worktree = Path("/tmp/sdbp-review-test-worktree")
-        return self.worktree
-
-    async def implement(self, document: JsonObject, _: Path) -> JsonObject:
-        revision = cast(JsonObject, document["revision"])
-        self.implemented_hash = str(revision["contentHash"])
-        return self.result
-
-    async def verify(self, _: Path) -> str:
-        self.verified = True
-        if self.verification_error:
-            raise self.verification_error
-        return "固定验证全部通过"
-
-    async def merge(self, _: Path, __: str) -> str:
+        store = self._store()
+        if task == "REQUIREMENT_CHANGE":
+            document = store.current_document()
+            diff = self.diff(document)
+            tool_id = store.begin_tool(
+                agent_run_id, None, "graph_create_candidate", str(diff["baseRevisionId"])
+            )
+            candidate = store.create_candidate(agent_run_id, diff)
+            store.finish_tool(tool_id, "COMPLETED", "候选 revision 已创建")
+            revision = cast(JsonObject, candidate["revision"])
+            status = "AWAITING_APPROVAL" if revision["approvable"] else "NEEDS_INPUT"
+            return {
+                "status": status,
+                "reply": str(diff["reply"]),
+                "focusNodeIds": ["ACTION-SUBMIT-REQUIREMENT"],
+            }
+        if implementation_run_id is None:
+            raise AssertionError("开发 Agent 缺少运行 ID")
+        if task == "IMPLEMENTATION":
+            if self.result is not None:
+                return self.result
+            current = store.current_document()
+            revision = cast(JsonObject, current["revision"])
+            self.implemented_hash = str(revision["contentHash"])
+            self.worktree = Path("/tmp/sdbp-review-test-worktree")
+            self._tool(
+                agent_run_id,
+                implementation_run_id,
+                "development_start",
+                lambda: store.start_run(implementation_run_id, self.worktree),
+            )
+            self._tool(
+                agent_run_id,
+                implementation_run_id,
+                "change_submit",
+                lambda: store.submit_change(implementation_run_id, "实现已完成"),
+            )
+            if self.skip_test:
+                return {"status": "COMPLETED", "reply": "实现完成", "focusNodeIds": []}
+            self.verified = True
+            store.begin_test(implementation_run_id)
+            test_tool = store.begin_tool(
+                agent_run_id, implementation_run_id, "test_run", "执行固定测试"
+            )
+            if self.verification_error:
+                store.finish_test(implementation_run_id, False, str(self.verification_error))
+                store.finish_tool(test_tool, "FAILED", str(self.verification_error))
+                raise self.verification_error
+            store.finish_test(implementation_run_id, True, "固定验证全部通过")
+            store.finish_tool(test_tool, "COMPLETED", "固定验证全部通过")
+            return {"status": "COMPLETED", "reply": "实现和固定测试已完成", "focusNodeIds": []}
+        if task != "SEMANTIC_REVIEW":
+            raise AssertionError(f"未知测试 Agent 任务：{task}")
+        status = self.review_status
+        self._tool(
+            agent_run_id,
+            implementation_run_id,
+            "review_submit",
+            lambda: store.submit_review(implementation_run_id, status, "语义 Review 完成"),
+        )
+        if status == "BLOCKED":
+            return {
+                "status": "BLOCKED",
+                "reply": "语义 Review 发现阻断问题",
+                "focusNodeIds": ["SCN-AGENT-SEMANTIC-REVIEW-001"],
+            }
+        merge_tool = store.begin_tool(
+            agent_run_id, implementation_run_id, "delivery_merge", "安全合并"
+        )
+        store.begin_merge(implementation_run_id)
         self.merged = True
-        return "已自动合并到本地分支"
+        store.complete_delivery(implementation_run_id, "已自动合并到本地分支")
+        store.finish_tool(merge_tool, "COMPLETED", "已自动合并到本地分支")
+        return {"status": "COMPLETED", "reply": "Review 和合并已完成", "focusNodeIds": []}
+
+    def _tool(
+        self,
+        agent_run_id: str,
+        implementation_run_id: str,
+        name: str,
+        operation: Callable[[], None],
+    ) -> None:
+        store = self._store()
+        tool_id = store.begin_tool(agent_run_id, implementation_run_id, name, name)
+        operation()
+        store.finish_tool(tool_id, "COMPLETED", f"{name} 完成")
+
+    def _store(self) -> Store:
+        if self.store is None:
+            raise AssertionError("测试 Runner 尚未绑定 Store")
+        return self.store
 
     async def render(self, dot_source: str) -> str:
         return f"<svg>{dot_source}</svg>"
@@ -134,6 +224,7 @@ def make_service(tmp_path: Path, runner: FakeRunner) -> ReviewService:
     document = seed()
     revision = cast(JsonObject, document["revision"])
     store = Store(tmp_path / "review.sqlite3", schema())
+    runner.store = store
     history = (load_object(ROOT / "model" / "revision" / f"{revision['baseRevisionId']}.json"),)
     return ReviewService(store, cast(Runner, runner), document, history)
 
@@ -160,7 +251,7 @@ def test_对话生成不可变候选revision(tmp_path: Path, scenario_id: str) -
         before = await service.state()
         await service.submit_message("输入场景需要更清楚。")
         modeling = await service.state()
-        assert modeling["requirement"]["operationStatus"] == "MODELING"
+        assert modeling["requirement"]["operationStatus"] == "AGENT_RUNNING"
         await settle(service)
         after = await service.state()
         before_id = before["revision"]["revision"]["id"]
@@ -217,7 +308,7 @@ def test_明确批准后才按同一哈希开发(tmp_path: Path, scenario_id: st
         completed = await service.state()
         assert completed["implementationRun"]["id"] == run_id
         assert completed["implementationRun"]["status"] == "COMPLETED"
-        assert "固定验证全部通过" in completed["implementationRun"]["summary"]
+        assert "已自动合并" in completed["implementationRun"]["summary"]
         assert runner.worktree is not None
         assert runner.implemented_hash == revision["contentHash"]
         assert runner.verified
@@ -256,6 +347,48 @@ def test_本地验证通过后才自动合并(tmp_path: Path, scenario_id: str) 
     run(scenario())
 
 
+@pytest.mark.parametrize(
+    "scenario_id", ["SCN-AGENT-MCP-ORCHESTRATION-001"], ids=lambda value: value
+)
+def test_Agent未调用固定测试不能进入Review(tmp_path: Path, scenario_id: str) -> None:
+    async def scenario() -> None:
+        runner = FakeRunner(skip_test=True)
+        service = make_service(tmp_path, runner)
+        await service.initialize()
+        await service.submit_message("补充 Agent 门禁场景。")
+        await settle(service)
+        revision = (await service.state())["revision"]["revision"]
+        await service.approve_and_start(revision["id"], revision["contentHash"])
+        await settle(service)
+        state = await service.state()
+        assert state["implementationRun"]["status"] == "FAILED"
+        assert "未通过 MCP 完成固定测试" in state["implementationRun"]["summary"]
+        assert not runner.merged
+        assert scenario_id.startswith("SCN-")
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("scenario_id", ["SCN-AGENT-SEMANTIC-REVIEW-001"], ids=lambda value: value)
+def test_语义Review阻断时不能合并(tmp_path: Path, scenario_id: str) -> None:
+    async def scenario() -> None:
+        runner = FakeRunner(review_status="BLOCKED")
+        service = make_service(tmp_path, runner)
+        await service.initialize()
+        await service.submit_message("补充语义 Review 场景。")
+        await settle(service)
+        revision = (await service.state())["revision"]["revision"]
+        await service.approve_and_start(revision["id"], revision["contentHash"])
+        await settle(service)
+        state = await service.state()
+        assert state["implementationRun"]["status"] == "BLOCKED"
+        assert state["implementationRun"]["reviewStatus"] == "BLOCKED"
+        assert not runner.merged
+        assert scenario_id.startswith("SCN-")
+
+    run(scenario())
+
+
 @pytest.mark.parametrize("scenario_id", ["SCN-LOCAL-AUTO-DELIVERY-001"], ids=lambda value: value)
 def test_本地自动合并只接受干净原基线(tmp_path: Path, scenario_id: str) -> None:
     repository = tmp_path / "repository"
@@ -288,8 +421,8 @@ def test_本地自动合并只接受干净原基线(tmp_path: Path, scenario_id:
         model_path=ROOT / "model" / "review-tool.json",
         revision_dir=ROOT / "model" / "revision",
         graph_schema_path=ROOT / "model" / "graph.schema.json",
-        model_diff_schema_path=ROOT / "app" / "schema" / "model-diff.schema.json",
-        implementation_schema_path=ROOT / "app" / "schema" / "implementation-result.schema.json",
+        agent_result_schema_path=ROOT / "app" / "schema" / "agent-result.schema.json",
+        prompt_dir=ROOT / "prompt",
     )
     runner = Runner(settings)
 
@@ -319,7 +452,7 @@ def test_Codex失败不覆盖有效revision(tmp_path: Path, scenario_id: str) ->
         await settle(service)
         state = await service.state()
         assert state["revision"]["revision"]["id"] == before["revision"]["revision"]["id"]
-        assert state["requirement"]["status"] == "ERROR"
+        assert state["requirement"]["status"] == "FAILED"
         assert "Codex 输出无效" in state["messages"][-1]["content"]
         assert scenario_id.startswith("SCN-")
 
@@ -331,8 +464,8 @@ def test_开发中新决策返回对话(tmp_path: Path, scenario_id: str) -> Non
     async def scenario() -> None:
         result: JsonObject = {
             "status": "NEEDS_INPUT",
-            "summary": "缺少必须的人工决策",
-            "question": "请确认目标分支名称。",
+            "reply": "请确认目标分支名称。",
+            "focusNodeIds": [],
         }
         service = make_service(tmp_path, FakeRunner(result=result))
         await service.initialize()
@@ -522,9 +655,10 @@ def test_启动时沿同一revision链加载内置候选(tmp_path: Path, scenari
     cast(JsonObject, stale["revision"])["contentHash"] = graph_hash(stale_graph)
     store.initialize(approved)
     store.initialize(stale, (base, candidate))
-    store.initialize(seed(), (base, candidate))
+    previous = load_object(ROOT / "model" / "revision" / "REV-REVIEW-TOOL-011.json")
+    store.initialize(seed(), (base, candidate, previous))
     current = store.state()["revision"]["revision"]
-    assert current["id"] == "REV-REVIEW-TOOL-011"
+    assert current["id"] == "REV-REVIEW-TOOL-012"
     assert current["contentHash"] == seed()["revision"]["contentHash"]
     assert scenario_id.startswith("SCN-")
 

@@ -11,6 +11,7 @@ from typing import cast
 from app.graph import (
     GraphError,
     JsonObject,
+    apply_diff,
     approval_errors,
     canonical_json,
     validate_document,
@@ -86,7 +87,37 @@ class Store:
                     status TEXT NOT NULL,
                     worktree TEXT,
                     summary TEXT,
-                    question TEXT,
+                    review_status TEXT,
+                    review_summary TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS agent_run (
+                    id TEXT PRIMARY KEY,
+                    requirement_id TEXT NOT NULL REFERENCES requirement(id),
+                    task TEXT NOT NULL,
+                    revision_id TEXT NOT NULL REFERENCES revision(id),
+                    implementation_run_id TEXT REFERENCES implementation_run(id),
+                    status TEXT NOT NULL,
+                    prompt_id TEXT,
+                    prompt_version TEXT,
+                    prompt_hash TEXT,
+                    input_hash TEXT,
+                    reply TEXT,
+                    focus_node_ids_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS tool_invocation (
+                    id TEXT PRIMARY KEY,
+                    agent_run_id TEXT NOT NULL REFERENCES agent_run(id),
+                    implementation_run_id TEXT REFERENCES implementation_run(id),
+                    name TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    input_summary TEXT NOT NULL,
+                    output_summary TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -112,6 +143,12 @@ class Store:
                     "ALTER TABLE revision ADD COLUMN repository_id TEXT "
                     f"NOT NULL DEFAULT '{REPOSITORY_ID}'"
                 )
+            run_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(implementation_run)")
+            }
+            for name in ("review_status", "review_summary"):
+                if name not in run_columns:
+                    connection.execute(f"ALTER TABLE implementation_run ADD COLUMN {name} TEXT")
             now = _now()
             connection.execute(
                 """
@@ -171,7 +208,23 @@ class Store:
                 """
                 UPDATE implementation_run
                 SET status = 'FAILED', summary = '应用重启，无法确认上次运行结果', updated_at = ?
-                WHERE status IN ('PENDING', 'RUNNING')
+                WHERE status NOT IN ('COMPLETED', 'FAILED', 'NEEDS_INPUT', 'BLOCKED')
+                """,
+                (now,),
+            )
+            connection.execute(
+                """
+                UPDATE agent_run
+                SET status = 'FAILED', reply = '应用重启，无法确认上次 Agent 结果', updated_at = ?
+                WHERE status = 'RUNNING'
+                """,
+                (now,),
+            )
+            connection.execute(
+                """
+                UPDATE tool_invocation
+                SET status = 'FAILED', output_summary = '应用重启，工具调用结果未知', updated_at = ?
+                WHERE status = 'RUNNING'
                 """,
                 (now,),
             )
@@ -266,6 +319,26 @@ class Store:
                 (REQUIREMENT_ID,),
             ).fetchone()
             run = self._run_row(run_row) if run_row else None
+            agent_row = connection.execute(
+                """
+                SELECT * FROM agent_run
+                WHERE requirement_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (REQUIREMENT_ID,),
+            ).fetchone()
+            agent = self._agent_row(agent_row) if agent_row else None
+            tools = [
+                self._tool_row(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM tool_invocation
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                    """
+                )
+            ]
             return {
                 "requirement": {
                     "id": requirement["id"],
@@ -279,9 +352,11 @@ class Store:
                 "baseRevision": base,
                 "messages": messages,
                 "implementationRun": run,
+                "agentRun": agent,
+                "toolInvocations": tools,
             }
 
-    def begin_modeling(self, content: str) -> tuple[JsonObject, list[JsonObject]]:
+    def begin_agent(self, content: str) -> tuple[str, JsonObject, list[JsonObject]]:
         message = content.strip()
         if not message:
             raise StoreError("需求消息不能为空")
@@ -305,7 +380,7 @@ class Store:
             connection.execute(
                 """
                 UPDATE requirement
-                SET operation_status = 'MODELING', status = 'MODELING',
+                SET operation_status = 'AGENT_RUNNING', status = 'AGENT_RUNNING',
                     last_error = NULL, updated_at = ?
                 WHERE id = ?
                 """,
@@ -331,7 +406,17 @@ class Store:
                     (REQUIREMENT_ID,),
                 )
             ]
-            return current, messages
+            revision = cast(JsonObject, current["revision"])
+            agent_run_id = f"AGENT-{uuid.uuid4().hex.upper()}"
+            connection.execute(
+                """
+                INSERT INTO agent_run (
+                    id, requirement_id, task, revision_id, status, created_at, updated_at
+                ) VALUES (?, ?, 'REQUIREMENT_CHANGE', ?, 'RUNNING', ?, ?)
+                """,
+                (agent_run_id, REQUIREMENT_ID, revision["id"], now, now),
+            )
+            return agent_run_id, current, messages
 
     def next_revision_id(self) -> str:
         with self._connect() as connection:
@@ -343,20 +428,37 @@ class Store:
         ]
         return f"REV-REVIEW-TOOL-{max(numbers, default=0) + 1:03d}"
 
-    def complete_modeling(self, base_revision_id: str, document: JsonObject, reply: str) -> None:
-        validate_document(document, self.graph_schema)
-        revision = cast(JsonObject, document["revision"])
+    def create_candidate(self, agent_run_id: str, diff: JsonObject) -> JsonObject:
         with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            requirement = connection.execute(
-                "SELECT * FROM requirement WHERE id = ?", (REQUIREMENT_ID,)
+            row = connection.execute(
+                "SELECT * FROM agent_run WHERE id = ?", (agent_run_id,)
             ).fetchone()
             if (
-                requirement is None
-                or requirement["operation_status"] != "MODELING"
-                or requirement["current_revision_id"] != base_revision_id
+                row is None
+                or row["status"] != "RUNNING"
+                or row["task"] not in {"REQUIREMENT_CHANGE", "REPOSITORY_BASELINE"}
             ):
-                raise StoreError("建模结果对应的需求状态已变化")
+                raise StoreError("Agent 运行不存在或已经结束")
+            current_row = connection.execute(
+                """
+                SELECT revision.* FROM revision
+                JOIN repository ON repository.current_revision_id = revision.id
+                WHERE repository.id = ?
+                """,
+                (REPOSITORY_ID,),
+            ).fetchone()
+            current = self._revision_row(current_row)
+        revision_id = self.next_revision_id()
+        document = apply_diff(current, diff, revision_id, self.graph_schema)
+        revision = cast(JsonObject, document["revision"])
+        current_revision = cast(JsonObject, current["revision"])
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            repository = connection.execute(
+                "SELECT current_revision_id FROM repository WHERE id = ?", (REPOSITORY_ID,)
+            ).fetchone()
+            if repository is None or repository["current_revision_id"] != current_revision["id"]:
+                raise StoreError("统一图已变化，请重新读取后再提交")
             now = _now()
             connection.execute(
                 """
@@ -366,15 +468,87 @@ class Store:
                 ) VALUES (?, ?, ?, ?, 'CANDIDATE', ?, ?, ?, ?)
                 """,
                 (
-                    revision["id"],
+                    revision_id,
                     REQUIREMENT_ID,
                     REPOSITORY_ID,
-                    base_revision_id,
+                    current_revision["id"],
                     canonical_json(document),
                     revision["contentHash"],
                     int(bool(revision["approvable"])),
                     now,
                 ),
+            )
+            connection.execute(
+                "UPDATE repository SET current_revision_id = ?, updated_at = ? WHERE id = ?",
+                (revision_id, now, REPOSITORY_ID),
+            )
+            connection.execute(
+                """
+                UPDATE requirement
+                SET current_revision_id = ?, status = 'REVIEWING', last_error = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (revision_id, now, REQUIREMENT_ID),
+            )
+        return document
+
+    def record_agent_prompt(
+        self,
+        agent_run_id: str,
+        prompt_id: str,
+        prompt_version: str,
+        prompt_hash: str,
+        input_hash: str,
+    ) -> None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE agent_run
+                SET prompt_id = ?, prompt_version = ?, prompt_hash = ?,
+                    input_hash = ?, updated_at = ?
+                WHERE id = ? AND status = 'RUNNING'
+                """,
+                (
+                    prompt_id,
+                    prompt_version,
+                    prompt_hash,
+                    input_hash,
+                    _now(),
+                    agent_run_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise StoreError("Agent 运行不存在或已经结束")
+
+    def finish_agent(self, agent_run_id: str, result: JsonObject) -> None:
+        status = result.get("status")
+        reply = result.get("reply")
+        focus_node_ids = result.get("focusNodeIds")
+        if status not in {
+            "COMPLETED",
+            "NEEDS_INPUT",
+            "AWAITING_APPROVAL",
+            "BLOCKED",
+            "FAILED",
+        }:
+            raise StoreError("Agent 返回了未知状态")
+        if not isinstance(reply, str) or not isinstance(focus_node_ids, list):
+            raise StoreError("Agent 结果格式无效")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM agent_run WHERE id = ?", (agent_run_id,)
+            ).fetchone()
+            if row is None or row["status"] != "RUNNING":
+                raise StoreError("Agent 运行不存在或已经结束")
+            now = _now()
+            connection.execute(
+                """
+                UPDATE agent_run
+                SET status = ?, reply = ?, focus_node_ids_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (status, reply.strip(), json.dumps(focus_node_ids), now, agent_run_id),
             )
             connection.execute(
                 """
@@ -383,43 +557,72 @@ class Store:
                 """,
                 (REQUIREMENT_ID, reply.strip(), now),
             )
-            connection.execute(
-                """
-                UPDATE requirement
-                SET current_revision_id = ?, operation_status = 'IDLE', status = 'REVIEWING',
-                    last_error = NULL, updated_at = ?
-                WHERE id = ?
-                """,
-                (revision["id"], now, REQUIREMENT_ID),
-            )
-            connection.execute(
-                """
-                UPDATE repository SET current_revision_id = ?, updated_at = ? WHERE id = ?
-                """,
-                (revision["id"], now, REPOSITORY_ID),
-            )
+            implementation_run_id = row["implementation_run_id"]
+            if implementation_run_id is None:
+                current = connection.execute(
+                    """
+                    SELECT revision.status FROM revision
+                    JOIN repository ON repository.current_revision_id = revision.id
+                    WHERE repository.id = ?
+                    """,
+                    (REPOSITORY_ID,),
+                ).fetchone()
+                candidate = current is not None and current["status"] == "CANDIDATE"
+                requirement_status = (
+                    "REVIEWING" if status == "AWAITING_APPROVAL" and candidate else status
+                )
+                if status == "COMPLETED":
+                    requirement_status = "REVIEWING" if candidate else "READY"
+                connection.execute(
+                    """
+                    UPDATE requirement
+                    SET operation_status = 'IDLE', status = ?, last_error = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        requirement_status,
+                        reply if status == "FAILED" else None,
+                        now,
+                        REQUIREMENT_ID,
+                    ),
+                )
+            elif status in {"NEEDS_INPUT", "BLOCKED", "FAILED"}:
+                connection.execute(
+                    """
+                    UPDATE implementation_run
+                    SET status = ?, summary = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        status,
+                        reply,
+                        now,
+                        implementation_run_id,
+                    ),
+                )
+                connection.execute(
+                    """
+                    UPDATE requirement
+                    SET operation_status = 'IDLE', status = ?, last_error = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        status,
+                        reply if status == "FAILED" else None,
+                        now,
+                        REQUIREMENT_ID,
+                    ),
+                )
 
-    def fail_modeling(self, error: str) -> None:
-        message = error.strip() or "未知错误"
-        with self._connect() as connection:
-            now = _now()
-            connection.execute(
-                """
-                INSERT INTO message (requirement_id, role, content, created_at)
-                VALUES (?, 'AI', ?, ?)
-                """,
-                (REQUIREMENT_ID, f"建模失败：{message}", now),
-            )
-            connection.execute(
-                """
-                UPDATE requirement
-                SET operation_status = 'IDLE', status = 'ERROR', last_error = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (message, now, REQUIREMENT_ID),
-            )
+    def fail_agent(self, agent_run_id: str, error: str) -> None:
+        self.finish_agent(
+            agent_run_id,
+            {"status": "FAILED", "reply": error.strip() or "未知错误", "focusNodeIds": []},
+        )
 
-    def approve_and_create_run(self, revision_id: str, content_hash: str) -> tuple[str, JsonObject]:
+    def approve_and_create_run(
+        self, revision_id: str, content_hash: str
+    ) -> tuple[str, str, JsonObject]:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             requirement = connection.execute(
@@ -448,6 +651,7 @@ class Store:
             approved_revision["status"] = "APPROVED"
             approved_revision["approvable"] = False
             run_id = f"RUN-{uuid.uuid4().hex.upper()}"
+            agent_run_id = f"AGENT-{uuid.uuid4().hex.upper()}"
             now = _now()
             connection.execute(
                 """
@@ -467,56 +671,243 @@ class Store:
             )
             connection.execute(
                 """
+                INSERT INTO agent_run (
+                    id, requirement_id, task, revision_id, implementation_run_id,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, 'IMPLEMENTATION', ?, ?, 'RUNNING', ?, ?)
+                """,
+                (agent_run_id, REQUIREMENT_ID, revision_id, run_id, now, now),
+            )
+            connection.execute(
+                """
                 UPDATE requirement
-                SET operation_status = 'DEVELOPING', status = 'DEVELOPING', updated_at = ?
+                SET operation_status = 'AGENT_RUNNING', status = 'DEVELOPING', updated_at = ?
                 WHERE id = ?
                 """,
                 (now, REQUIREMENT_ID),
             )
-            return run_id, cast(JsonObject, approved)
+            return run_id, agent_run_id, cast(JsonObject, approved)
 
-    def start_run(self, run_id: str, worktree: Path) -> None:
-        self._update_run(run_id, "RUNNING", worktree=str(worktree))
-
-    def update_run_progress(self, run_id: str, status: str, summary: str) -> None:
-        if status not in {"VERIFYING", "MERGING"}:
-            raise StoreError("未知自动交付状态")
-        self._update_run(run_id, status, summary=summary)
-
-    def finish_run(self, run_id: str, result: JsonObject) -> None:
-        status = result.get("status")
-        if status not in {"COMPLETED", "NEEDS_INPUT", "FAILED"}:
-            raise StoreError("Codex 返回了未知开发状态")
-        summary = result.get("summary")
-        question = result.get("question")
-        if not isinstance(summary, str) or not isinstance(question, str):
-            raise StoreError("Codex 开发结果格式无效")
-        self._update_run(run_id, status, summary=summary, question=question or None)
+    def begin_review_agent(self, run_id: str) -> tuple[str, JsonObject]:
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = connection.execute(
+                "SELECT * FROM implementation_run WHERE id = ?", (run_id,)
+            ).fetchone()
+            if run is None or run["status"] != "VERIFIED":
+                raise StoreError("固定测试尚未通过，不能开始语义 Review")
+            document = self._revision_row(
+                connection.execute(
+                    "SELECT * FROM revision WHERE id = ?", (run["revision_id"],)
+                ).fetchone()
+            )
+            agent_run_id = f"AGENT-{uuid.uuid4().hex.upper()}"
             now = _now()
-            requirement_status = "READY" if status == "COMPLETED" else status
+            connection.execute(
+                """
+                INSERT INTO agent_run (
+                    id, requirement_id, task, revision_id, implementation_run_id,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, 'SEMANTIC_REVIEW', ?, ?, 'RUNNING', ?, ?)
+                """,
+                (agent_run_id, REQUIREMENT_ID, run["revision_id"], run_id, now, now),
+            )
+            connection.execute(
+                "UPDATE implementation_run SET status = 'REVIEWING', updated_at = ? WHERE id = ?",
+                (now, run_id),
+            )
             connection.execute(
                 """
                 UPDATE requirement
-                SET operation_status = 'IDLE', status = ?, last_error = ?, updated_at = ?
+                SET operation_status = 'AGENT_RUNNING', status = 'REVIEWING', updated_at = ?
                 WHERE id = ?
                 """,
-                (requirement_status, summary if status == "FAILED" else None, now, REQUIREMENT_ID),
+                (now, REQUIREMENT_ID),
             )
-            if status == "NEEDS_INPUT" and question:
+            return agent_run_id, document
+
+    def agent(self, agent_run_id: str) -> JsonObject:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM agent_run WHERE id = ?", (agent_run_id,)
+            ).fetchone()
+        if row is None:
+            raise StoreError("Agent 运行不存在")
+        return self._agent_row(row)
+
+    def implementation_run(self, run_id: str) -> JsonObject:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM implementation_run WHERE id = ?", (run_id,)
+            ).fetchone()
+        if row is None:
+            raise StoreError("开发运行不存在")
+        return self._run_row(row)
+
+    def current_document(self) -> JsonObject:
+        return cast(JsonObject, self.state()["revision"])
+
+    def start_run(self, run_id: str, worktree: Path) -> None:
+        run = self.implementation_run(run_id)
+        if run["status"] != "PENDING":
+            raise StoreError("当前开发运行不能创建 worktree")
+        self._update_run(run_id, "RUNNING", worktree=str(worktree))
+
+    def submit_change(self, run_id: str, summary: str) -> None:
+        run = self.implementation_run(run_id)
+        if run["status"] not in {"RUNNING", "TESTING"}:
+            raise StoreError("当前开发运行不能提交变更摘要")
+        self._update_run(run_id, "RUNNING", summary=summary.strip())
+
+    def begin_test(self, run_id: str) -> Path:
+        run = self.implementation_run(run_id)
+        if run["status"] not in {"RUNNING", "VERIFIED"}:
+            raise StoreError("当前开发运行不能执行固定测试")
+        worktree = run.get("worktree")
+        if not isinstance(worktree, str):
+            raise StoreError("开发 worktree 尚未创建")
+        self._update_run(run_id, "TESTING", summary="正在执行项目固定测试")
+        return Path(worktree)
+
+    def finish_test(self, run_id: str, passed: bool, summary: str) -> None:
+        run = self.implementation_run(run_id)
+        if run["status"] != "TESTING":
+            raise StoreError("固定测试状态已变化")
+        self._update_run(run_id, "VERIFIED" if passed else "RUNNING", summary=summary)
+
+    def submit_review(self, run_id: str, status: str, summary: str) -> None:
+        if status not in {"PASS", "BLOCKED"}:
+            raise StoreError("语义 Review 状态必须是 PASS 或 BLOCKED")
+        run = self.implementation_run(run_id)
+        if run["status"] != "REVIEWING":
+            raise StoreError("当前开发运行不能提交语义 Review")
+        with self._connect() as connection:
+            now = _now()
+            next_status = "REVIEW_PASSED" if status == "PASS" else "BLOCKED"
+            connection.execute(
+                """
+                UPDATE implementation_run
+                SET status = ?, review_status = ?, review_summary = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (next_status, status, summary.strip(), now, run_id),
+            )
+            if status == "BLOCKED":
                 connection.execute(
                     """
-                    INSERT INTO message (requirement_id, role, content, created_at)
-                    VALUES (?, 'AI', ?, ?)
+                    UPDATE requirement
+                    SET operation_status = 'IDLE', status = 'BLOCKED', updated_at = ?
+                    WHERE id = ?
                     """,
-                    (REQUIREMENT_ID, question, now),
+                    (now, REQUIREMENT_ID),
                 )
 
+    def begin_merge(self, run_id: str) -> tuple[Path, str]:
+        run = self.implementation_run(run_id)
+        worktree = run.get("worktree")
+        revision_id = run.get("revisionId")
+        if (
+            run["status"] != "REVIEW_PASSED"
+            or run.get("reviewStatus") != "PASS"
+            or not isinstance(worktree, str)
+            or not isinstance(revision_id, str)
+        ):
+            raise StoreError("固定测试和语义 Review 未通过，不能合并")
+        self._update_run(run_id, "MERGING", summary="正在安全合并本地分支")
+        return Path(worktree), revision_id
+
+    def complete_delivery(self, run_id: str, summary: str) -> None:
+        run = self.implementation_run(run_id)
+        if run["status"] != "MERGING":
+            raise StoreError("开发运行不在合并状态")
+        self._update_run(run_id, "COMPLETED", summary=summary)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE requirement
+                SET operation_status = 'IDLE', status = 'READY', last_error = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (_now(), REQUIREMENT_ID),
+            )
+
+    def begin_tool(
+        self,
+        agent_run_id: str,
+        implementation_run_id: str | None,
+        name: str,
+        input_summary: str,
+    ) -> str:
+        tool_id = f"TOOL-{uuid.uuid4().hex.upper()}"
+        with self._connect() as connection:
+            agent = connection.execute(
+                "SELECT * FROM agent_run WHERE id = ?", (agent_run_id,)
+            ).fetchone()
+            if agent is None or agent["status"] != "RUNNING":
+                raise StoreError("Agent 运行不存在或已经结束")
+            if agent["implementation_run_id"] != implementation_run_id:
+                raise StoreError("工具调用与开发运行不匹配")
+            now = _now()
+            connection.execute(
+                """
+                INSERT INTO tool_invocation (
+                    id, agent_run_id, implementation_run_id, name, status,
+                    input_summary, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'RUNNING', ?, ?, ?)
+                """,
+                (
+                    tool_id,
+                    agent_run_id,
+                    implementation_run_id,
+                    name,
+                    input_summary[:1000],
+                    now,
+                    now,
+                ),
+            )
+        return tool_id
+
+    def finish_tool(self, tool_id: str, status: str, output_summary: str) -> None:
+        if status not in {"COMPLETED", "FAILED"}:
+            raise StoreError("未知工具调用状态")
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE tool_invocation
+                SET status = ?, output_summary = ?, updated_at = ?
+                WHERE id = ? AND status = 'RUNNING'
+                """,
+                (status, output_summary[:2000], _now(), tool_id),
+            )
+            if cursor.rowcount != 1:
+                raise StoreError("工具调用不存在或已经结束")
+
+    def tool_invocations(self, run_id: str) -> list[JsonObject]:
+        with self._connect() as connection:
+            return [
+                self._tool_row(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM tool_invocation
+                    WHERE implementation_run_id = ?
+                    ORDER BY created_at ASC
+                    """,
+                    (run_id,),
+                )
+            ]
+
     def fail_run(self, run_id: str, error: str) -> None:
-        self.finish_run(
-            run_id,
-            {"status": "FAILED", "summary": error.strip() or "未知错误", "question": ""},
-        )
+        message = error.strip() or "未知错误"
+        self._update_run(run_id, "FAILED", summary=message)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE requirement
+                SET operation_status = 'IDLE', status = 'FAILED', last_error = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (message, _now(), REQUIREMENT_ID),
+            )
 
     def _update_run(
         self,
@@ -525,11 +916,10 @@ class Store:
         *,
         worktree: str | None = None,
         summary: str | None = None,
-        question: str | None = None,
     ) -> None:
         fields = ["status = ?", "updated_at = ?"]
         values: list[str | None] = [status, _now()]
-        for name, value in (("worktree", worktree), ("summary", summary), ("question", question)):
+        for name, value in (("worktree", worktree), ("summary", summary)):
             if value is not None:
                 fields.append(f"{name} = ?")
                 values.append(value)
@@ -564,7 +954,39 @@ class Store:
             "status": row["status"],
             "worktree": row["worktree"],
             "summary": row["summary"],
-            "question": row["question"],
+            "reviewStatus": row["review_status"],
+            "reviewSummary": row["review_summary"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    @staticmethod
+    def _agent_row(row: sqlite3.Row) -> JsonObject:
+        focus_node_ids = json.loads(row["focus_node_ids_json"])
+        return {
+            "id": row["id"],
+            "task": row["task"],
+            "revisionId": row["revision_id"],
+            "implementationRunId": row["implementation_run_id"],
+            "status": row["status"],
+            "promptId": row["prompt_id"],
+            "promptVersion": row["prompt_version"],
+            "reply": row["reply"],
+            "focusNodeIds": focus_node_ids if isinstance(focus_node_ids, list) else [],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    @staticmethod
+    def _tool_row(row: sqlite3.Row) -> JsonObject:
+        return {
+            "id": row["id"],
+            "agentRunId": row["agent_run_id"],
+            "implementationRunId": row["implementation_run_id"],
+            "name": row["name"],
+            "status": row["status"],
+            "inputSummary": row["input_summary"],
+            "outputSummary": row["output_summary"],
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
         }

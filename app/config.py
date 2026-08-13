@@ -18,8 +18,8 @@ class Settings:
     model_path: Path
     revision_dir: Path
     graph_schema_path: Path
-    model_diff_schema_path: Path
-    implementation_schema_path: Path
+    agent_result_schema_path: Path
+    prompt_dir: Path
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -37,9 +37,6 @@ class Settings:
             model_path=ROOT / "model" / "review-tool.json",
             revision_dir=ROOT / "model" / "revision",
             graph_schema_path=ROOT / "model" / "graph.schema.json",
-            model_diff_schema_path=ROOT / "app" / "schema" / "model-diff.schema.json",
-            implementation_schema_path=ROOT
-            / "app"
-            / "schema"
-            / "implementation-result.schema.json",
+            agent_result_schema_path=ROOT / "app" / "schema" / "agent-result.schema.json",
+            prompt_dir=ROOT / "prompt",
         )

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "reply", "focusNodeIds"],
+  "properties": {
+    "status": {
+      "enum": ["COMPLETED", "NEEDS_INPUT", "AWAITING_APPROVAL", "BLOCKED", "FAILED"]
+    },
+    "reply": {"type": "string", "minLength": 1},
+    "focusNodeIds": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"},
+      "uniqueItems": true
+    }
+  }
+}

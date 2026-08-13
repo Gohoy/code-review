@@ -52,8 +52,10 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
         content = body.get("content")
         if not isinstance(content, str):
             raise GraphError("content 必须是字符串")
-        await service.submit_message(content)
-        return JSONResponse({"status": "MODELING"}, status_code=202)
+        agent_run_id = await service.submit_message(content)
+        return JSONResponse(
+            {"agentRunId": agent_run_id, "status": "AGENT_RUNNING"}, status_code=202
+        )
 
     async def approve(request: Request) -> JSONResponse:
         body = await _body(request)

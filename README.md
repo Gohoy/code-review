@@ -1,9 +1,15 @@
 # sdbp-review
 
-SDBP 的统一图模型驱动需求、技术设计、开发、测试与代码 Review 工具。
+`sdbp-review` 是以 Agent 为主体的本地需求、行为模型和代码 Review 工具。用户只通过自然语言对话与统一图交互；本机 Codex Agent 读取 MCP Resource、调用领域 Tool，并由版本化 Prompt 编排行为。
 
-第一里程碑已经实现：用户通过自然语言让本机 Codex 生成需求与技术设计图差异，明确批准后，系统才会在隔离 Git worktree 中启动开发。唯一数据源是
-[统一图模型](model/review-tool.json)。当前批准版本为 `REV-REVIEW-TOOL-009`；图与代码权威契约候选版本为 `REV-REVIEW-TOOL-010`；需求下钻代码调用链候选版本为 `REV-REVIEW-TOOL-011`。
+核心事实源与边界：
+
+- `model/review-tool.json`：唯一版本化行为模型，UML/SVG 只是投影。
+- `prompt/`：共同契约、仓库基线、需求变更、实现和语义 Review Prompt。
+- `python -m app.mcp_server`：stdio MCP Server，提供代码函数索引、统一图、worktree、测试、Review 与合并能力。
+- SQLite 记录 `agent_run` 和 `tool_invocation`；页面展示 Agent 当前任务和 MCP 活动，不保存隐藏推理。
+
+当前候选行为模型是 `REV-REVIEW-TOOL-012`：本机 Agent 先生成需求和技术设计图差异；用户明确批准后，Agent 才能在隔离 Git worktree 中开发、运行固定测试，并由独立只读 Agent 完成语义 Review 和本地快进合并。
 
 ## 本地运行
 
