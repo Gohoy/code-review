@@ -317,12 +317,18 @@ class Runner:
         )
 
     async def verify(self, worktree: Path, approved_scenario_ids: frozenset[str]) -> str:
-        await self._assert_implementation_gate(worktree, approved_scenario_ids)
+        await self.verify_gate(worktree, approved_scenario_ids)
         await self._run(["npm", "--prefix", "prototype", "ci"], cwd=worktree, timeout=600)
         for command in VALIDATION_COMMANDS:
             await self._run(list(command), cwd=worktree, timeout=600)
         evidence = await self._scenario_test_evidence(worktree, approved_scenario_ids)
         return "\n".join(("项目固定测试全部通过", *evidence))
+
+    async def verify_gate(
+        self, worktree: Path, approved_scenario_ids: frozenset[str]
+    ) -> tuple[str, ...]:
+        """公开的最小实现差异门禁入口。"""
+        return await self._assert_implementation_gate(worktree, approved_scenario_ids)
 
     async def merge(self, worktree: Path, revision_id: str) -> str:
         await self._assert_implementation_gate(worktree, frozenset())

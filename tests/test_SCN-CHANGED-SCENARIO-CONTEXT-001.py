@@ -18,6 +18,10 @@ class _差异仓库:
     def state(self) -> JsonObject:
         return {"revision": self.current, "baseRevision": self.base}
 
+    def run_revision_documents(self, run_id: str) -> tuple[JsonObject, JsonObject]:
+        assert run_id == "RUN-TEST"
+        return self.base, self.current
+
     def approve_and_create_run(
         self, revision_id: str, content_hash: str
     ) -> tuple[str, str, JsonObject]:

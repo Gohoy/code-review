@@ -15,7 +15,7 @@ from app.graph import JsonObject, approval_errors, canonical_json, code_ownershi
 from app.indexer import index_repository
 from app.prompt import PromptCatalog
 from app.runner import VALIDATION_COMMANDS, Runner
-from app.service import revision_change_context
+from app.service import revision_change_context, validation_context_hash
 from app.store import StoreError
 
 settings = Settings.from_env()
@@ -274,17 +274,15 @@ async def test_run() -> JsonObject:
         run_id = _implementation_id()
         worktree = await asyncio.to_thread(store.begin_test, run_id)
         try:
-            state = store.state()
-            document = cast(JsonObject, state["revision"])
-            base_value = state.get("baseRevision")
-            base = cast(JsonObject, base_value) if isinstance(base_value, dict) else None
+            base, document = store.run_revision_documents(run_id)
             context = revision_change_context(base, document)
             scenario_ids = frozenset(cast(list[str], context["changedScenarioIds"]))
             summary = await runner.verify(worktree, scenario_ids)
         except Exception as error:
             await asyncio.to_thread(store.finish_test, run_id, False, str(error))
             raise
-        await asyncio.to_thread(store.finish_test, run_id, True, summary)
+        context_hash = validation_context_hash(sorted(scenario_ids))
+        await asyncio.to_thread(store.finish_test, run_id, True, summary, context_hash)
         return {"runId": run_id, "status": "VERIFIED", "summary": summary}
 
     return await _tool("test_run", "执行项目固定测试", operation)
@@ -308,7 +306,12 @@ async def delivery_merge() -> JsonObject:
 
     async def operation() -> JsonObject:
         run_id = _implementation_id()
-        worktree, revision_id = await asyncio.to_thread(store.begin_merge, run_id)
+        base, document = await asyncio.to_thread(store.run_revision_documents, run_id)
+        context = revision_change_context(base, document)
+        context_hash = validation_context_hash(cast(list[str], context["changedScenarioIds"]))
+        worktree, revision_id = await asyncio.to_thread(
+            store.begin_merge_verified, run_id, context_hash
+        )
         try:
             summary = await runner.merge(worktree, revision_id)
         except Exception:

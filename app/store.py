@@ -91,6 +91,7 @@ class Store:
                     summary TEXT,
                     review_status TEXT,
                     review_summary TEXT,
+                    validation_context_hash TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -148,7 +149,7 @@ class Store:
             run_columns = {
                 row[1] for row in connection.execute("PRAGMA table_info(implementation_run)")
             }
-            for name in ("review_status", "review_summary"):
+            for name in ("review_status", "review_summary", "validation_context_hash"):
                 if name not in run_columns:
                     connection.execute(f"ALTER TABLE implementation_run ADD COLUMN {name} TEXT")
             now = _now()
@@ -820,6 +821,27 @@ class Store:
             raise StoreError("开发运行不存在")
         return self._run_row(row)
 
+    def run_revision_documents(self, run_id: str) -> tuple[JsonObject | None, JsonObject]:
+        """按 implementation run 固定读取批准 revision 及其直接父 revision。"""
+        with self._connect() as connection:
+            run = connection.execute(
+                "SELECT revision_id FROM implementation_run WHERE id = ?", (run_id,)
+            ).fetchone()
+            if run is None:
+                raise StoreError("开发运行不存在")
+            current_row = connection.execute(
+                "SELECT * FROM revision WHERE id = ?", (run["revision_id"],)
+            ).fetchone()
+            current = self._revision_row(current_row)
+            revision = cast(JsonObject, current["revision"])
+            base_id = revision.get("baseRevisionId")
+            base_row = (
+                connection.execute("SELECT * FROM revision WHERE id = ?", (base_id,)).fetchone()
+                if isinstance(base_id, str)
+                else None
+            )
+            return (self._revision_row(base_row) if base_row is not None else None, current)
+
     def current_document(self) -> JsonObject:
         return cast(JsonObject, self.state()["revision"])
 
@@ -845,11 +867,33 @@ class Store:
         self._update_run(run_id, "TESTING", summary="正在执行项目固定测试")
         return Path(worktree)
 
-    def finish_test(self, run_id: str, passed: bool, summary: str) -> None:
+    def finish_test(
+        self,
+        run_id: str,
+        passed: bool,
+        summary: str,
+        validation_context_hash: str,
+    ) -> None:
         run = self.implementation_run(run_id)
         if run["status"] != "TESTING":
             raise StoreError("固定测试状态已变化")
-        self._update_run(run_id, "VERIFIED" if passed else "RUNNING", summary=summary)
+        if passed and not validation_context_hash:
+            raise StoreError("验证上下文哈希不能为空")
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE implementation_run
+                SET status = ?, summary = ?, validation_context_hash = ?, updated_at = ?
+                WHERE id = ? AND status = 'TESTING'
+                """,
+                (
+                    "VERIFIED" if passed else "RUNNING",
+                    summary,
+                    validation_context_hash if passed else None,
+                    _now(),
+                    run_id,
+                ),
+            )
 
     def submit_review(self, run_id: str, status: str, summary: str) -> None:
         if status not in {"PASS", "BLOCKED"}:
@@ -891,6 +935,38 @@ class Store:
             raise StoreError("固定测试和语义 Review 未通过，不能合并")
         self._update_run(run_id, "MERGING", summary="正在安全合并本地分支")
         return Path(worktree), revision_id
+
+    def begin_merge_verified(self, run_id: str, validation_context_hash: str) -> tuple[Path, str]:
+        """原子核验测试、Review 与固定变化上下文后进入合并。"""
+        if not validation_context_hash:
+            raise StoreError("验证上下文哈希不能为空")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = connection.execute(
+                "SELECT * FROM implementation_run WHERE id = ?", (run_id,)
+            ).fetchone()
+            if run is None:
+                raise StoreError("开发运行不存在")
+            if (
+                run["status"] != "REVIEW_PASSED"
+                or run["review_status"] != "PASS"
+                or not run["validation_context_hash"]
+                or run["validation_context_hash"] != validation_context_hash
+                or not run["worktree"]
+                or not run["revision_id"]
+            ):
+                raise StoreError("固定测试、语义 Review 或验证上下文不匹配，不能合并")
+            cursor = connection.execute(
+                """
+                UPDATE implementation_run
+                SET status = 'MERGING', summary = ?, updated_at = ?
+                WHERE id = ? AND status = 'REVIEW_PASSED'
+                """,
+                ("正在安全合并本地分支", _now(), run_id),
+            )
+            if cursor.rowcount != 1:
+                raise StoreError("开发运行状态已变化，不能合并")
+            return Path(str(run["worktree"])), str(run["revision_id"])
 
     def complete_delivery(self, run_id: str, summary: str) -> None:
         run = self.implementation_run(run_id)
@@ -1032,6 +1108,7 @@ class Store:
             "summary": row["summary"],
             "reviewStatus": row["review_status"],
             "reviewSummary": row["review_summary"],
+            "validationContextHash": row["validation_context_hash"],
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
         }

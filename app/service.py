@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
+import json
 import logging
 from collections.abc import Coroutine
 from pathlib import Path
@@ -40,6 +42,11 @@ def revision_change_context(base: JsonObject | None, document: JsonObject) -> Js
     }
 
 
+def validation_context_hash(changed_scenario_ids: list[str]) -> str:
+    payload = json.dumps(changed_scenario_ids, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 class ReviewService:
     def __init__(
         self,
@@ -73,7 +80,14 @@ class ReviewService:
         document = cast(JsonObject, state["revision"])
         base_value = state.get("baseRevision")
         base = cast(JsonObject, base_value) if isinstance(base_value, dict) else None
-        state.update(revision_change_context(base, document))
+        run = state.get("implementationRun")
+        if isinstance(run, dict) and isinstance(run.get("id"), str):
+            run_base, run_document = await asyncio.to_thread(
+                self.store.run_revision_documents, str(run["id"])
+            )
+            state.update(revision_change_context(run_base, run_document))
+        else:
+            state.update(revision_change_context(base, document))
         graph = cast(JsonObject, document["graph"])
         nodes = cast(list[JsonObject], graph["nodes"])
         state["approvalErrors"] = approval_errors(document)
@@ -324,7 +338,7 @@ class ReviewService:
             "approvedRevisionId": revision["id"],
             "approvedContentHash": revision["contentHash"],
             "expectedFinalStatus": ["COMPLETED", "NEEDS_INPUT"],
-            **(await self._revision_change_context(document)),
+            **(await self._revision_change_context(run_id, document)),
         }
         prompt = await self._record_prompt(agent_run_id, "IMPLEMENTATION", context)
         self._start(self._run_agent("IMPLEMENTATION", agent_run_id, prompt, run_id))
@@ -421,7 +435,7 @@ class ReviewService:
             "approvedContentHash": revision["contentHash"],
             "changeResource": f"change://{run_id}",
             "expectedFinalStatus": ["COMPLETED", "BLOCKED"],
-            **(await self._revision_change_context(document)),
+            **(await self._revision_change_context(run_id, document)),
         }
         prompt = await self._record_prompt(agent_run_id, "SEMANTIC_REVIEW", context)
         await self._run_agent(
@@ -432,12 +446,10 @@ class ReviewService:
             Path(worktree_value),
         )
 
-    async def _revision_change_context(self, document: JsonObject) -> JsonObject:
+    async def _revision_change_context(self, run_id: str, document: JsonObject) -> JsonObject:
         """生成实现与语义 Review 共用的确定性 revision 差异上下文。"""
-        state = await asyncio.to_thread(self.store.state)
-        base_value = state.get("baseRevision")
-        base = cast(JsonObject, base_value) if isinstance(base_value, dict) else None
-        return revision_change_context(base, document)
+        base, fixed_document = await asyncio.to_thread(self.store.run_revision_documents, run_id)
+        return revision_change_context(base, fixed_document)
 
     async def _record_prompt(self, agent_run_id: str, task: str, context: JsonObject) -> Prompt:
         prompt = self.runner.prompt(task, context)

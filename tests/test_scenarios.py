@@ -30,7 +30,7 @@ from app.graph import (
 from app.indexer import index_repository
 from app.prompt import Prompt
 from app.runner import Runner, RunnerError
-from app.service import ReviewService
+from app.service import ReviewService, revision_change_context, validation_context_hash
 from app.store import REPOSITORY_ID, Store, StoreError
 
 
@@ -210,10 +210,17 @@ class FakeRunner:
                 agent_run_id, implementation_run_id, "test_run", "执行固定测试"
             )
             if self.verification_error:
-                store.finish_test(implementation_run_id, False, str(self.verification_error))
+                store.finish_test(implementation_run_id, False, str(self.verification_error), "")
                 store.finish_tool(test_tool, "FAILED", str(self.verification_error))
                 raise self.verification_error
-            store.finish_test(implementation_run_id, True, "固定验证全部通过")
+            base, current = store.run_revision_documents(implementation_run_id)
+            changed = cast(list[str], revision_change_context(base, current)["changedScenarioIds"])
+            store.finish_test(
+                implementation_run_id,
+                True,
+                "固定验证全部通过",
+                validation_context_hash(changed),
+            )
             store.finish_tool(test_tool, "COMPLETED", "固定验证全部通过")
             return {"status": "COMPLETED", "reply": "实现和固定测试已完成", "focusNodeIds": []}
         if task != "SEMANTIC_REVIEW":
@@ -234,7 +241,9 @@ class FakeRunner:
         merge_tool = store.begin_tool(
             agent_run_id, implementation_run_id, "delivery_merge", "安全合并"
         )
-        store.begin_merge(implementation_run_id)
+        base, current = store.run_revision_documents(implementation_run_id)
+        changed = cast(list[str], revision_change_context(base, current)["changedScenarioIds"])
+        store.begin_merge_verified(implementation_run_id, validation_context_hash(changed))
         self.merged = True
         store.complete_delivery(implementation_run_id, "已自动合并到本地分支")
         store.finish_tool(merge_tool, "COMPLETED", "已自动合并到本地分支")

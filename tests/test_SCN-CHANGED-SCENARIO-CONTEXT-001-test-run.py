@@ -48,6 +48,9 @@ def test_SCN_CHANGED_SCENARIO_CONTEXT_001_固定测试仅验证本轮变化场�
         def state(self) -> JsonObject:
             return {"revision": current, "baseRevision": base}
 
+        def run_revision_documents(self, _: str) -> tuple[JsonObject, JsonObject]:
+            return base, current
+
         def finish_test(self, *_: object) -> None:
             return None
 
