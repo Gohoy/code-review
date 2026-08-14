@@ -1117,23 +1117,37 @@ def _resolve_call(
 ) -> str | None:
     path = _string(source.get("path"), "function.path")
     qualified = _string(source.get("qualifiedName"), "function.qualifiedName")
-    normalized = name.removeprefix("self.").removeprefix("cls.")
-    short = normalized.rsplit(".", 1)[-1]
-    scope = qualified.rsplit(".", 1)[0] if "." in qualified else ""
-    candidates = [
-        *lookup.get(normalized, []),
-        *lookup.get(f"{scope}.{short}", []),
-        *lookup.get(short, []),
-    ]
+    if path.endswith((".js", ".jsx", ".ts", ".tsx")):
+        normalized = name.removeprefix("self.").removeprefix("cls.")
+        short = normalized.rsplit(".", 1)[-1]
+        scope = qualified.rsplit(".", 1)[0] if "." in qualified else ""
+        candidates = [
+            *lookup.get(normalized, []),
+            *lookup.get(f"{scope}.{short}", []),
+            *lookup.get(short, []),
+        ]
+    elif name.startswith(("self.", "cls.")):
+        scope = qualified.rsplit(".", 1)[0] if "." in qualified else ""
+        candidates = lookup.get(f"{scope}.{name.split('.', 1)[1]}", [])
+    elif "." in name:
+        receiver = name.split(".", 1)[0]
+        candidates = lookup.get(name, []) if receiver[:1].isupper() else []
+    else:
+        candidates = [
+            *lookup.get(name, []),
+            *lookup.get(f"{qualified}.{name}", []),
+        ]
     unique = {
         _string(candidate.get("id"), "function.id"): candidate
         for candidate in candidates
         if candidate.get("path") == path
+        and (
+            path.endswith((".js", ".jsx", ".ts", ".tsx"))
+            or name.startswith(("self.", "cls."))
+            or "." in name
+            or candidate.get("qualifiedName") in {name, f"{qualified}.{name}"}
+        )
     }
-    if len(unique) != 1:
-        unique = {
-            _string(candidate.get("id"), "function.id"): candidate for candidate in candidates
-        }
     return next(iter(unique)) if len(unique) == 1 else None
 
 

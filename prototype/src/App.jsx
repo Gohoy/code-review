@@ -577,7 +577,8 @@ export function ReviewApp() {
   const canRetry = revision?.status === "APPROVED"
     && state.requirement.operationStatus === "IDLE"
     && state.implementationRun?.revisionId === revision.id
-    && state.implementationRun?.status === "FAILED";
+    && (state.implementationRun?.status === "FAILED"
+      || state.implementationRun?.status === "NEEDS_INPUT");
   const unavailable = Object.entries(state.dependencies || {})
     .filter(([, value]) => String(value).startsWith("不可用"));
   const conversation = <Conversation state={state} draft={draft} setDraft={setDraft} sending={sending} onSubmit={submit} inputRef={inputRef} open={conversationOpen} />;

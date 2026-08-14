@@ -917,8 +917,8 @@ class Store:
                 """,
                 (REQUIREMENT_ID, revision_id),
             ).fetchone()
-            if latest is None or latest["status"] != "FAILED":
-                raise StoreError("仅可重试当前批准 revision 的最新失败运行")
+            if latest is None or latest["status"] not in {"FAILED", "NEEDS_INPUT"}:
+                raise StoreError("仅可重试当前批准 revision 的最新失败或待补充信息运行")
 
             document = self._revision_row(row)
             validate_document(document, self.graph_schema)
