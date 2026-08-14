@@ -274,9 +274,14 @@ async def test_run() -> JsonObject:
         run_id = _implementation_id()
         worktree = await asyncio.to_thread(store.begin_test, run_id)
         try:
-            base, document = store.run_revision_documents(run_id)
-            context = revision_change_context(base, document)
-            scenario_ids = frozenset(cast(list[str], context["changedScenarioIds"]))
+            if hasattr(store, "run_delivery_scope"):
+                scenario_ids = frozenset(
+                    cast(list[str], store.run_delivery_scope(run_id)["deliveryScenarioIds"])
+                )
+            else:
+                base, document = store.run_revision_documents(run_id)
+                context = revision_change_context(base, document)
+                scenario_ids = frozenset(cast(list[str], context["changedScenarioIds"]))
             summary = await runner.verify(worktree, scenario_ids)
             evidence = getattr(runner, "last_test_evidence", ())
         except Exception as error:
@@ -307,9 +312,8 @@ async def delivery_merge() -> JsonObject:
 
     async def operation() -> JsonObject:
         run_id = _implementation_id()
-        base, document = await asyncio.to_thread(store.run_revision_documents, run_id)
-        context = revision_change_context(base, document)
-        context_hash = validation_context_hash(cast(list[str], context["changedScenarioIds"]))
+        scope = await asyncio.to_thread(store.run_delivery_scope, run_id)
+        context_hash = validation_context_hash(cast(list[str], scope["deliveryScenarioIds"]))
         worktree, revision_id = await asyncio.to_thread(
             store.begin_merge_verified, run_id, context_hash
         )

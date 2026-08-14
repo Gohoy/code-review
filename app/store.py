@@ -14,6 +14,7 @@ from app.graph import (
     apply_diff,
     approval_errors,
     canonical_json,
+    changed_ids,
     code_index_diff,
     validate_document,
     with_code_snapshot,
@@ -92,6 +93,9 @@ class Store:
                     review_status TEXT,
                     review_summary TEXT,
                     validation_context_hash TEXT,
+                    direct_scenario_ids_json TEXT NOT NULL DEFAULT '[]',
+                    inherited_scenario_ids_json TEXT NOT NULL DEFAULT '[]',
+                    delivery_scenario_ids_json TEXT NOT NULL DEFAULT '[]',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -164,6 +168,16 @@ class Store:
             for name in ("review_status", "review_summary", "validation_context_hash"):
                 if name not in run_columns:
                     connection.execute(f"ALTER TABLE implementation_run ADD COLUMN {name} TEXT")
+            for name in (
+                "direct_scenario_ids_json",
+                "inherited_scenario_ids_json",
+                "delivery_scenario_ids_json",
+            ):
+                if name not in run_columns:
+                    connection.execute(
+                        f"ALTER TABLE implementation_run ADD COLUMN {name} "
+                        "TEXT NOT NULL DEFAULT '[]'"
+                    )
             now = _now()
             connection.execute(
                 """
@@ -753,6 +767,8 @@ class Store:
             run_id = f"RUN-{uuid.uuid4().hex.upper()}"
             agent_run_id = f"AGENT-{uuid.uuid4().hex.upper()}"
             now = _now()
+            direct_ids, inherited_ids = self._delivery_scope(connection, revision_id)
+            delivery_ids = sorted(set(direct_ids) | set(inherited_ids))
             connection.execute(
                 """
                 UPDATE revision
@@ -764,10 +780,20 @@ class Store:
             connection.execute(
                 """
                 INSERT INTO implementation_run (
-                    id, requirement_id, revision_id, status, created_at, updated_at
-                ) VALUES (?, ?, ?, 'PENDING', ?, ?)
+                    id, requirement_id, revision_id, status, direct_scenario_ids_json,
+                    inherited_scenario_ids_json, delivery_scenario_ids_json, created_at, updated_at
+                ) VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)
                 """,
-                (run_id, REQUIREMENT_ID, revision_id, now, now),
+                (
+                    run_id,
+                    REQUIREMENT_ID,
+                    revision_id,
+                    json.dumps(direct_ids),
+                    json.dumps(inherited_ids),
+                    json.dumps(delivery_ids),
+                    now,
+                    now,
+                ),
             )
             connection.execute(
                 """
@@ -824,13 +850,25 @@ class Store:
             run_id = f"RUN-{uuid.uuid4().hex.upper()}"
             agent_run_id = f"AGENT-{uuid.uuid4().hex.upper()}"
             now = _now()
+            direct_ids, inherited_ids = self._delivery_scope(connection, revision_id)
+            delivery_ids = sorted(set(direct_ids) | set(inherited_ids))
             connection.execute(
                 """
                 INSERT INTO implementation_run (
-                    id, requirement_id, revision_id, status, created_at, updated_at
-                ) VALUES (?, ?, ?, 'PENDING', ?, ?)
+                    id, requirement_id, revision_id, status, direct_scenario_ids_json,
+                    inherited_scenario_ids_json, delivery_scenario_ids_json, created_at, updated_at
+                ) VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)
                 """,
-                (run_id, REQUIREMENT_ID, revision_id, now, now),
+                (
+                    run_id,
+                    REQUIREMENT_ID,
+                    revision_id,
+                    json.dumps(direct_ids),
+                    json.dumps(inherited_ids),
+                    json.dumps(delivery_ids),
+                    now,
+                    now,
+                ),
             )
             connection.execute(
                 """
@@ -928,6 +966,87 @@ class Store:
                 else None
             )
             return (self._revision_row(base_row) if base_row is not None else None, current)
+
+    def run_delivery_scope(self, run_id: str) -> JsonObject:
+        """读取 implementation run 创建时固定的权威交付场景范围。"""
+        run = self.implementation_run(run_id)
+        return {
+            "directScenarioIds": run["directScenarioIds"],
+            "inheritedScenarioIds": run["inheritedScenarioIds"],
+            "deliveryScenarioIds": run["deliveryScenarioIds"],
+        }
+
+    def _delivery_scope(
+        self, connection: sqlite3.Connection, revision_id: str
+    ) -> tuple[list[str], list[str]]:
+        """按 revision 祖先链和已成功交付账本计算新运行范围。"""
+        chain: list[tuple[str, JsonObject]] = []
+        current_id: str | None = revision_id
+        while current_id:
+            row = connection.execute(
+                "SELECT * FROM revision WHERE id = ?", (current_id,)
+            ).fetchone()
+            if row is None:
+                break
+            document = self._revision_row(row)
+            chain.append((current_id, document))
+            revision = cast(JsonObject, document["revision"])
+            current_id = (
+                str(revision["baseRevisionId"])
+                if isinstance(revision.get("baseRevisionId"), str)
+                else None
+            )
+
+        direct_by_revision: dict[str, list[str]] = {}
+        for index, (item_id, document) in enumerate(chain):
+            parent = chain[index + 1][1] if index + 1 < len(chain) else None
+            direct_by_revision[item_id] = self._changed_scenario_ids(parent, document)
+
+        delivered: set[str] = set()
+        for row in connection.execute(
+            "SELECT status, delivery_scenario_ids_json FROM implementation_run "
+            "WHERE status = 'COMPLETED'"
+        ):
+            delivered.update(self._json_ids(row["delivery_scenario_ids_json"]))
+
+        direct = direct_by_revision.get(revision_id, [])
+        inherited = sorted(
+            {
+                scenario_id
+                for ancestor_id, _ in chain[1:]
+                for scenario_id in direct_by_revision.get(ancestor_id, [])
+                if scenario_id not in delivered and scenario_id not in direct
+            }
+        )
+        return sorted(direct), inherited
+
+    @staticmethod
+    def _changed_scenario_ids(base: JsonObject | None, document: JsonObject) -> list[str]:
+        node_ids, edge_ids = changed_ids(base, document)
+        graph = cast(JsonObject, document["graph"])
+        nodes = cast(list[JsonObject], graph["nodes"])
+        scenario_ids = {str(node["id"]) for node in nodes if node.get("kind") == "Scenario"}
+        changed = {
+            str(node["id"])
+            for node in nodes
+            if node.get("id") in node_ids and node.get("kind") == "Scenario"
+        }
+        changed.update(
+            str(edge[endpoint])
+            for edge in cast(list[JsonObject], graph["edges"])
+            if edge.get("id") in edge_ids
+            for endpoint in ("sourceId", "targetId")
+            if edge.get(endpoint) in scenario_ids
+        )
+        return sorted(changed)
+
+    @staticmethod
+    def _json_ids(value: object) -> list[str]:
+        try:
+            parsed = json.loads(str(value or "[]"))
+        except json.JSONDecodeError:
+            return []
+        return sorted(str(item) for item in parsed) if isinstance(parsed, list) else []
 
     def current_document(self) -> JsonObject:
         return cast(JsonObject, self.state()["revision"])
@@ -1263,6 +1382,7 @@ class Store:
 
     @staticmethod
     def _run_row(row: sqlite3.Row) -> JsonObject:
+        columns = set(row.keys())
         return {
             "id": row["id"],
             "revisionId": row["revision_id"],
@@ -1272,6 +1392,19 @@ class Store:
             "reviewStatus": row["review_status"],
             "reviewSummary": row["review_summary"],
             "validationContextHash": row["validation_context_hash"],
+            "directScenarioIds": Store._json_ids(
+                row["direct_scenario_ids_json"] if "direct_scenario_ids_json" in columns else "[]"
+            ),
+            "inheritedScenarioIds": Store._json_ids(
+                row["inherited_scenario_ids_json"]
+                if "inherited_scenario_ids_json" in columns
+                else "[]"
+            ),
+            "deliveryScenarioIds": Store._json_ids(
+                row["delivery_scenario_ids_json"]
+                if "delivery_scenario_ids_json" in columns
+                else "[]"
+            ),
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
         }

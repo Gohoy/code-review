@@ -590,7 +590,17 @@ class ReviewService:
     async def _revision_change_context(self, run_id: str, document: JsonObject) -> JsonObject:
         """生成实现与语义 Review 共用的确定性 revision 差异上下文。"""
         base, fixed_document = await asyncio.to_thread(self.store.run_revision_documents, run_id)
-        return revision_change_context(base, fixed_document)
+        direct_context = revision_change_context(base, fixed_document)
+        if isinstance(self.store, Store):
+            scope = await asyncio.to_thread(self.store.run_delivery_scope, run_id)
+        else:
+            direct_ids = cast(list[str], direct_context["changedScenarioIds"])
+            scope = {
+                "directScenarioIds": direct_ids,
+                "inheritedScenarioIds": [],
+                "deliveryScenarioIds": direct_ids,
+            }
+        return {**direct_context, **scope}
 
     async def _record_prompt(self, agent_run_id: str, task: str, context: JsonObject) -> Prompt:
         prompt = self.runner.prompt(task, context)
