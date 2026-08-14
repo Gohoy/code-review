@@ -341,6 +341,7 @@ export function ReviewApp() {
   const [contextLoading, setContextLoading] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
   const [footerOpen, setFooterOpen] = useState(false);
+  const [deliverySummaryOpen, setDeliverySummaryOpen] = useState(false);
   const inputRef = useRef(null);
   const graphRef = useRef(null);
   const transformRef = useRef(null);
@@ -674,7 +675,27 @@ export function ReviewApp() {
               <Text type="secondary">
                 函数 {state.codeMetrics?.functionCount || 0} · 结构归属 {state.codeMetrics?.structurallyOwnedFunctionCount || 0} · 语义归属 {state.codeMetrics?.semanticallyOwnedFunctionCount || 0}（直接 {state.codeMetrics?.directlyOwnedFunctionCount || 0} / 继承 {state.codeMetrics?.inheritedFunctionCount || 0}） · 未归属 {state.codeMetrics?.unownedFunctionCount || 0} · 覆盖率 {state.codeMetrics?.coverageStatus === "OBSERVED" ? `${state.codeMetrics.coveredFunctionCount} 已覆盖 / ${state.codeMetrics.uncoveredFunctionCount} 未覆盖` : "暂无真实产物"}
               </Text>
-              {state.implementationRun && <Text type="secondary" aria-live="polite">自动交付 {runStatusTitles[state.implementationRun.status] || state.implementationRun.status}：{state.implementationRun.summary || "等待执行"}</Text>}
+              {state.implementationRun && (
+                <Flex align="flex-start" gap={4} className="delivery-summary-row">
+                  <Text
+                    type="secondary"
+                    aria-live="polite"
+                    className={deliverySummaryOpen ? "" : "delivery-summary-clamped"}
+                  >
+                    自动交付 {runStatusTitles[state.implementationRun.status] || state.implementationRun.status}：{state.implementationRun.summary || "等待执行"}
+                  </Text>
+                  {state.implementationRun.summary && (
+                    <Button
+                      type="link"
+                      size="small"
+                      className="delivery-summary-toggle"
+                      onClick={() => setDeliverySummaryOpen((value) => !value)}
+                    >
+                      {deliverySummaryOpen ? "收起" : "展开"}
+                    </Button>
+                  )}
+                </Flex>
+              )}
               {state.implementationRun && <Text type="secondary">交付范围：直接 {state.implementationRun.directScenarioIds?.join("、") || "无"}；继承 {state.implementationRun.inheritedScenarioIds?.join("、") || "无"}</Text>}
             </Space>
             <Space wrap>

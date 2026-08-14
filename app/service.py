@@ -90,7 +90,12 @@ class ReviewService:
         base_value = state.get("baseRevision")
         base = cast(JsonObject, base_value) if isinstance(base_value, dict) else None
         run = state.get("implementationRun")
-        if isinstance(run, dict) and isinstance(run.get("id"), str):
+        revision = cast(JsonObject, document["revision"])
+        if (
+            isinstance(run, dict)
+            and isinstance(run.get("id"), str)
+            and run.get("revisionId") == revision["id"]
+        ):
             run_base, run_document = await asyncio.to_thread(
                 self.store.run_revision_documents, str(run["id"])
             )
