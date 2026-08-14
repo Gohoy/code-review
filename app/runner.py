@@ -318,8 +318,10 @@ class Runner:
 
     async def verify(self, worktree: Path, approved_scenario_ids: frozenset[str]) -> str:
         await self.verify_gate(worktree, approved_scenario_ids)
-        await self._run(["npm", "--prefix", "prototype", "ci"], cwd=worktree, timeout=600)
+        shared_dependencies = (worktree / "prototype" / "node_modules").is_symlink()
         for command in VALIDATION_COMMANDS:
+            if shared_dependencies and command == ("npm", "--prefix", "prototype", "ci"):
+                continue
             await self._run(list(command), cwd=worktree, timeout=600)
         evidence = await self._scenario_test_evidence(worktree, approved_scenario_ids)
         return "\n".join(("项目固定测试全部通过", *evidence))
