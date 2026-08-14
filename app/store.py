@@ -337,10 +337,14 @@ class Store:
                 for row in connection.execute(
                     """
                     SELECT id, role, content, created_at
-                    FROM message
-                    WHERE requirement_id = ?
+                    FROM (
+                        SELECT id, role, content, created_at
+                        FROM message
+                        WHERE requirement_id = ?
+                        ORDER BY id DESC
+                        LIMIT 200
+                    )
                     ORDER BY id ASC
-                    LIMIT 200
                     """,
                     (REQUIREMENT_ID,),
                 )
@@ -436,8 +440,15 @@ class Store:
                 {"role": row["role"], "content": row["content"]}
                 for row in connection.execute(
                     """
-                    SELECT role, content FROM message
-                    WHERE requirement_id = ? ORDER BY id ASC LIMIT 200
+                    SELECT role, content
+                    FROM (
+                        SELECT id, role, content
+                        FROM message
+                        WHERE requirement_id = ?
+                        ORDER BY id DESC
+                        LIMIT 200
+                    )
+                    ORDER BY id ASC
                     """,
                     (REQUIREMENT_ID,),
                 )

@@ -28,7 +28,7 @@ from app.graph import (
     with_code_snapshot,
 )
 from app.indexer import index_repository
-from app.prompt import Prompt
+from app.prompt import Prompt, PromptCatalog
 from app.runner import Runner, RunnerError
 from app.service import ReviewService, revision_change_context, validation_context_hash
 from app.store import REPOSITORY_ID, Store, StoreError
@@ -367,6 +367,16 @@ def test_对话生成不可变候选revision(tmp_path: Path, scenario_id: str) -
         assert scenario_id.startswith("SCN-")
 
     run(scenario())
+
+
+def test_SCN_REQ_REVISE_001_最新消息必须产生匹配的新候选() -> None:
+    prompt = PromptCatalog(ROOT / "prompt").load("REQUIREMENT_CHANGE")
+
+    assert prompt.version == "1.2.0"
+    assert "最新一条 USER 消息是本次唯一任务" in prompt.text
+    assert "必须先用 `graph_query` 精确查询每个 ID" in prompt.text
+    assert "当前 revision 已批准" in prompt.text
+    assert "必须创建后代候选" in prompt.text
 
 
 @pytest.mark.parametrize(
