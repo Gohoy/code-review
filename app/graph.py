@@ -1117,7 +1117,7 @@ def _resolve_call(
 ) -> str | None:
     path = _string(source.get("path"), "function.path")
     qualified = _string(source.get("qualifiedName"), "function.qualifiedName")
-    if path.endswith((".js", ".jsx", ".ts", ".tsx")):
+    if not path.endswith(".py"):
         normalized = name.removeprefix("self.").removeprefix("cls.")
         short = normalized.rsplit(".", 1)[-1]
         scope = qualified.rsplit(".", 1)[0] if "." in qualified else ""
@@ -1126,29 +1126,73 @@ def _resolve_call(
             *lookup.get(f"{scope}.{short}", []),
             *lookup.get(short, []),
         ]
-    elif name.startswith(("self.", "cls.")):
-        scope = qualified.rsplit(".", 1)[0] if "." in qualified else ""
-        candidates = lookup.get(f"{scope}.{name.split('.', 1)[1]}", [])
-    elif "." in name:
-        receiver = name.split(".", 1)[0]
-        candidates = lookup.get(name, []) if receiver[:1].isupper() else []
-    else:
+        unique = {
+            _string(candidate.get("id"), "function.id"): candidate
+            for candidate in candidates
+            if candidate.get("path") == path
+        }
+        if len(unique) != 1:
+            unique = {
+                _string(candidate.get("id"), "function.id"): candidate for candidate in candidates
+            }
+        return next(iter(unique)) if len(unique) == 1 else None
+
+    parts = qualified.split(".")
+    if name.startswith(("self.", "cls.")):
+        class_scope = None
+        for length in range(len(parts) - 1, 0, -1):
+            prefix = ".".join(parts[:length])
+            prefix_is_function = any(
+                candidate.get("path") == path and candidate.get("qualifiedName") == prefix
+                for candidate in lookup.get(prefix, [])
+            )
+            if not prefix_is_function:
+                class_scope = prefix
+                break
+        if class_scope is None:
+            return None
+        target = f"{class_scope}.{name.split('.', 1)[1]}"
         candidates = [
-            *lookup.get(name, []),
-            *lookup.get(f"{qualified}.{name}", []),
+            candidate
+            for candidate in lookup.get(target, [])
+            if candidate.get("path") == path and candidate.get("qualifiedName") == target
         ]
-    unique = {
-        _string(candidate.get("id"), "function.id"): candidate
-        for candidate in candidates
-        if candidate.get("path") == path
-        and (
-            path.endswith((".js", ".jsx", ".ts", ".tsx"))
-            or name.startswith(("self.", "cls."))
-            or "." in name
-            or candidate.get("qualifiedName") in {name, f"{qualified}.{name}"}
-        )
-    }
-    return next(iter(unique)) if len(unique) == 1 else None
+    elif "." in name:
+        receiver = name.rsplit(".", 1)[0]
+        if not all(part[:1].isupper() for part in receiver.split(".")):
+            return None
+        candidates = [
+            candidate
+            for candidate in lookup.get(name, [])
+            if candidate.get("qualifiedName") == name
+        ]
+    else:
+        candidates = []
+        for length in range(len(parts), 0, -1):
+            prefix = ".".join(parts[:length])
+            prefix_is_function = any(
+                candidate.get("path") == path and candidate.get("qualifiedName") == prefix
+                for candidate in lookup.get(prefix, [])
+            )
+            if not prefix_is_function:
+                continue
+            target = f"{prefix}.{name}"
+            matches = [
+                candidate
+                for candidate in lookup.get(target, [])
+                if candidate.get("path") == path and candidate.get("qualifiedName") == target
+            ]
+            if matches:
+                candidates = matches
+                break
+        if not candidates:
+            candidates = [
+                candidate
+                for candidate in lookup.get(name, [])
+                if candidate.get("path") == path and candidate.get("qualifiedName") == name
+            ]
+    unique_ids = {_string(candidate.get("id"), "function.id") for candidate in candidates}
+    return next(iter(unique_ids)) if len(unique_ids) == 1 else None
 
 
 def _dot(value: str) -> str:

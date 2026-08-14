@@ -24,18 +24,25 @@ class Outer:
         @classmethod
         def cls_only(cls): pass
         def explicit_only(self): pass
-        def source(self):
+        def self_source(self):
             self.self_only()
+        @classmethod
+        def cls_source(cls):
             cls.cls_only()
+        def explicit_source(self):
             Outer.Inner.explicit_only()
+        def top_source(self):
             top_level_only()
+        def unresolved_source(self):
             service.pop()
             redis.eval()
             ambiguous()
 
 def local_owner():
     def local_only(): pass
-    local_only()
+    def local_source():
+        local_only()
+    local_source()
 """,
         encoding="utf-8",
     )
@@ -60,24 +67,31 @@ def local_owner():
         if edge["kind"] == "calls"
     }
 
-    assert ("Outer.Inner.source", "Outer.Inner.self_only") in calls
-    assert ("Outer.Inner.source", "Outer.Inner.cls_only") in calls
-    assert ("Outer.Inner.source", "Outer.Inner.explicit_only") in calls
-    assert ("Outer.Inner.source", "top_level_only") in calls
-    assert ("local_owner", "local_owner.local_only") in calls
-    source = next(node for node in nodes.values() if node.get("title") == "Outer.Inner.source")
+    assert ("Outer.Inner.self_source", "Outer.Inner.self_only") in calls
+    assert ("Outer.Inner.cls_source", "Outer.Inner.cls_only") in calls
+    assert ("Outer.Inner.explicit_source", "Outer.Inner.explicit_only") in calls
+    assert ("Outer.Inner.top_source", "top_level_only") in calls
+    assert ("local_owner.local_source", "local_owner.local_only") in calls
+    source = next(
+        node for node in nodes.values() if node.get("title") == "Outer.Inner.unresolved_source"
+    )
     assert {"service.pop", "redis.eval", "ambiguous"} <= set(source["details"]["unresolvedCalls"])
     assert not any(
-        caller == "Outer.Inner.source" and target.startswith("FakeService.")
+        caller == "Outer.Inner.unresolved_source" and target.startswith("FakeService.")
         for caller, target in calls
     )
 
 
 def test_SCN_CALL_RESOLUTION_PRECISION_001_JavaScript调用解析保持现状(tmp_path: Path) -> None:
-    (tmp_path / "app.js").write_text(
-        "function target() {}\nfunction source() { target(); }\n", encoding="utf-8"
+    (tmp_path / "source.js").write_text("function source() { target(); }\n", encoding="utf-8")
+    (tmp_path / "target.js").write_text("function target() {}\n", encoding="utf-8")
+    indexed = index_repository(
+        tmp_path,
+        ["source.js", "target.js"],
+        "1" * 40,
+        "2" * 40,
+        {"nodes": [], "edges": []},
     )
-    indexed = index_repository(tmp_path, ["app.js"], "1" * 40, "2" * 40, {"nodes": [], "edges": []})
     graph = code_index_diff(_base(indexed), indexed)
     nodes = {node["id"]: node for node in cast(list[JsonObject], graph["upsertNodes"])}
     assert any(
