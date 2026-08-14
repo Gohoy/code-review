@@ -37,9 +37,9 @@ import {
   useTransformComponent,
 } from "react-zoom-pan-pinch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { mergeTestEvidenceGraph } from "./graph.js";
+import { mergeTestEvidenceGraph, retainTestEvidence } from "./graph.js";
 
-export { mergeTestEvidenceGraph } from "./graph.js";
+export { mergeTestEvidenceGraph, retainTestEvidence } from "./graph.js";
 
 const { Header, Content, Footer, Sider } = Layout;
 const { Text, Title, Paragraph } = Typography;
@@ -335,7 +335,7 @@ export function ReviewApp() {
   const [conversationOpen, setConversationOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [svg, setSvg] = useState("");
-  const [testEvidence, setTestEvidence] = useState({ nodes: [], edges: [] });
+  const [testEvidence, setTestEvidence] = useState({ implementationRunId: null, nodes: [], edges: [] });
   const [graphError, setGraphError] = useState("");
   const [requirementContext, setRequirementContext] = useState(null);
   const [contextLoading, setContextLoading] = useState(false);
@@ -425,19 +425,19 @@ export function ReviewApp() {
 
   useEffect(() => {
     if (!revision || layer !== "verification") {
-      setTestEvidence({ nodes: [], edges: [] });
+      setTestEvidence({ implementationRunId: null, nodes: [], edges: [] });
       return;
     }
     let active = true;
     const implementationRunId = state?.implementationRun?.id || null;
-    setTestEvidence({ nodes: [], edges: [] });
+    setTestEvidence((current) => retainTestEvidence(current, implementationRunId));
     request(`/api/revision/${encodeURIComponent(revision.id)}/test-evidence`)
       .then((value) => {
         if (active && value.implementationRunId === implementationRunId) setTestEvidence(value);
       })
       .catch((error) => { if (active) setGraphError(error.message); });
     return () => { active = false; };
-  }, [layer, revision?.id, state?.implementationRun?.updatedAt]);
+  }, [layer, revision?.id, state?.implementationRun?.id, state?.implementationRun?.updatedAt]);
 
   useEffect(() => {
     if (!revision) return;

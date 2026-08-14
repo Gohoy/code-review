@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { access } from "node:fs/promises";
 import test from "node:test";
+import { retainTestEvidence } from "../src/graph.js";
 import worker from "../worker/index.js";
+
+test("SCN-RUN-TEST-EVIDENCE-001：同一运行刷新时保留已展示的测试证据", () => {
+  const projection = { implementationRunId: "RUN-1", nodes: [{ id: "EVIDENCE-1" }], edges: [] };
+
+  assert.equal(retainTestEvidence(projection, "RUN-1"), projection);
+  assert.deepEqual(retainTestEvidence(projection, "RUN-2"), {
+    implementationRunId: "RUN-2",
+    nodes: [],
+    edges: [],
+  });
+});
 
 test("SCN-GRAPH-EXPLORE-001：直接返回已有静态资源", async () => {
   const calls = [];

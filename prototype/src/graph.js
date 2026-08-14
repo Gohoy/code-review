@@ -6,3 +6,8 @@ export function mergeTestEvidenceGraph(graph, layer, projection) {
     edges: [...graph.edges, ...(projection.edges || [])],
   };
 }
+
+export function retainTestEvidence(projection, implementationRunId) {
+  if (projection.implementationRunId === implementationRunId) return projection;
+  return { implementationRunId, nodes: [], edges: [] };
+}

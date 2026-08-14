@@ -109,7 +109,7 @@ def test_SCN_RUN_TEST_EVIDENCE_001_投影包含场景关系逐测试节点和空
 
     assert [node["title"] for node in nodes] == [
         "SCN-RUN-TEST-EVIDENCE-001 测试汇总",
-        item["testNodeId"],
+        "测试 1",
     ]
     assert {(edge["kind"], edge["sourceId"], edge["targetId"]) for edge in edges} == {
         (
@@ -155,6 +155,7 @@ def test_SCN_RUN_TEST_EVIDENCE_001_前端在桌面侧栏与移动抽屉共用可
     assert "...(projection.edges || [])" in helper
     assert "mergeTestEvidenceGraph(document?.graph, layer, testEvidence)" in source
     assert "value.implementationRunId === implementationRunId" in source
+    assert "retainTestEvidence(current, implementationRunId)" in source
     assert "desktop && <Sider" in source
     assert 'title="节点详情"' in source
     assert "if (!desktop) setInspectorOpen(true)" in source

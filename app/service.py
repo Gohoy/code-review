@@ -403,7 +403,7 @@ class ReviewService:
                         "kind": "Evidence",
                         "layer": "verification",
                         "source": "OBSERVED",
-                        "title": str(item["testNodeId"]),
+                        "title": f"测试 {index}",
                         "summary": "该测试在当前 implementation run 中真实通过。",
                         "details": item,
                     }
