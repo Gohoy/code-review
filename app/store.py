@@ -96,6 +96,7 @@ class Store:
                     direct_scenario_ids_json TEXT NOT NULL DEFAULT '[]',
                     inherited_scenario_ids_json TEXT NOT NULL DEFAULT '[]',
                     delivery_scenario_ids_json TEXT NOT NULL DEFAULT '[]',
+                    delivery_scope_recorded INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -178,6 +179,11 @@ class Store:
                         f"ALTER TABLE implementation_run ADD COLUMN {name} "
                         "TEXT NOT NULL DEFAULT '[]'"
                     )
+            if "delivery_scope_recorded" not in run_columns:
+                connection.execute(
+                    "ALTER TABLE implementation_run ADD COLUMN "
+                    "delivery_scope_recorded INTEGER NOT NULL DEFAULT 0"
+                )
             now = _now()
             connection.execute(
                 """
@@ -781,8 +787,9 @@ class Store:
                 """
                 INSERT INTO implementation_run (
                     id, requirement_id, revision_id, status, direct_scenario_ids_json,
-                    inherited_scenario_ids_json, delivery_scenario_ids_json, created_at, updated_at
-                ) VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)
+                    inherited_scenario_ids_json, delivery_scenario_ids_json,
+                    delivery_scope_recorded, created_at, updated_at
+                ) VALUES (?, ?, ?, 'PENDING', ?, ?, ?, 1, ?, ?)
                 """,
                 (
                     run_id,
@@ -856,8 +863,9 @@ class Store:
                 """
                 INSERT INTO implementation_run (
                     id, requirement_id, revision_id, status, direct_scenario_ids_json,
-                    inherited_scenario_ids_json, delivery_scenario_ids_json, created_at, updated_at
-                ) VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)
+                    inherited_scenario_ids_json, delivery_scenario_ids_json,
+                    delivery_scope_recorded, created_at, updated_at
+                ) VALUES (?, ?, ?, 'PENDING', ?, ?, ?, 1, ?, ?)
                 """,
                 (
                     run_id,
@@ -1002,22 +1010,26 @@ class Store:
             parent = chain[index + 1][1] if index + 1 < len(chain) else None
             direct_by_revision[item_id] = self._changed_scenario_ids(parent, document)
 
-        delivered: set[str] = set()
-        for row in connection.execute(
-            "SELECT status, delivery_scenario_ids_json FROM implementation_run "
-            "WHERE status = 'COMPLETED'"
-        ):
-            delivered.update(self._json_ids(row["delivery_scenario_ids_json"]))
-
         direct = direct_by_revision.get(revision_id, [])
-        inherited = sorted(
-            {
-                scenario_id
-                for ancestor_id, _ in chain[1:]
-                for scenario_id in direct_by_revision.get(ancestor_id, [])
-                if scenario_id not in delivered and scenario_id not in direct
-            }
-        )
+        pending: set[str] = set()
+        for item_id, _ in reversed(chain):
+            pending.update(direct_by_revision.get(item_id, []))
+            for run in connection.execute(
+                """
+                SELECT delivery_scenario_ids_json, delivery_scope_recorded
+                FROM implementation_run
+                WHERE revision_id = ? AND status = 'COMPLETED'
+                ORDER BY created_at, rowid
+                """,
+                (item_id,),
+            ):
+                delivered = (
+                    self._json_ids(run["delivery_scenario_ids_json"])
+                    if run["delivery_scope_recorded"]
+                    else direct_by_revision.get(item_id, [])
+                )
+                pending.difference_update(delivered)
+        inherited = sorted(pending - set(direct))
         return sorted(direct), inherited
 
     @staticmethod
@@ -1405,6 +1417,9 @@ class Store:
                 if "delivery_scenario_ids_json" in columns
                 else "[]"
             ),
+            "deliveryScopeRecorded": bool(row["delivery_scope_recorded"])
+            if "delivery_scope_recorded" in columns
+            else False,
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
         }

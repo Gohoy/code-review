@@ -54,7 +54,11 @@ def _历史仓库(tmp_path: Path) -> tuple[Store, JsonObject]:
             "summary": "测试用祖先待交付场景。",
         }
     )
-    for document in (ancestor, parent, current):
+    cast(list[JsonObject], cast(JsonObject, ancestor["graph"])["nodes"]).append(
+        copy.deepcopy(desktop)
+    )
+    desktop["summary"] = "测试用后续修改的祖先待交付场景。"
+    for document in (parent, current):
         cast(list[JsonObject], cast(JsonObject, document["graph"])["nodes"]).append(
             copy.deepcopy(desktop)
         )
@@ -159,6 +163,43 @@ def test_SCN_PENDING_DELIVERY_SCOPE_001_只有明确包含场景的成功运行�
         _, inherited = store._delivery_scope(connection, "REV-REVIEW-TOOL-082")
 
     assert "SCN-DESKTOP-STATUS-LAYOUT-001" not in inherited
+
+
+def test_SCN_PENDING_DELIVERY_SCOPE_001_旧成功不能抵消后续阻断修改(
+    tmp_path: Path,
+) -> None:
+    store, _ = _历史仓库(tmp_path)
+    with sqlite3.connect(store.path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.executemany(
+            """
+            INSERT INTO implementation_run (
+                id, requirement_id, revision_id, status, delivery_scenario_ids_json,
+                delivery_scope_recorded, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, '[]', 0, ?, ?)
+            """,
+            [
+                (
+                    "RUN-LEGACY-COMPLETED",
+                    REQUIREMENT_ID,
+                    "REV-REVIEW-TOOL-080",
+                    "COMPLETED",
+                    "2026-08-14T00:05:00+00:00",
+                    "2026-08-14T00:05:00+00:00",
+                ),
+                (
+                    "RUN-LATER-BLOCKED",
+                    REQUIREMENT_ID,
+                    "REV-REVIEW-TOOL-081",
+                    "BLOCKED",
+                    "2026-08-14T00:10:00+00:00",
+                    "2026-08-14T00:10:00+00:00",
+                ),
+            ],
+        )
+        _, inherited = store._delivery_scope(connection, "REV-REVIEW-TOOL-082")
+
+    assert "SCN-DESKTOP-STATUS-LAYOUT-001" in inherited
 
 
 def test_SCN_PENDING_DELIVERY_SCOPE_001_运行范围不可变且测试Review页面共用同一范围(
