@@ -40,7 +40,13 @@ def test_SCN_AUTO_DEVELOPMENT_GATE_001_SCN_LOCAL_AUTO_DELIVERY_001_拒绝非法�
 
     runner._run = run  # type: ignore[method-assign]
     asyncio.run(runner.cleanup_worktree("RUN-MISSING", root / "RUN-MISSING"))
-    assert calls == [["git", "-C", str(tmp_path), "worktree", "prune"]]
+    asyncio.run(
+        runner.cleanup_worktree("RUN-LEGACY-MISSING", root / "RUN-LEGACY-MISSING" / "旧仓库")
+    )
+    assert calls == [
+        ["git", "-C", str(tmp_path), "worktree", "prune"],
+        ["git", "-C", str(tmp_path), "worktree", "prune"],
+    ]
 
 
 def test_SCN_AUTO_DEVELOPMENT_GATE_001_SCN_LOCAL_AUTO_DELIVERY_001_依赖链接不进入Git状态(

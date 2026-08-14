@@ -294,6 +294,13 @@ class Runner:
             resolved_worktree = stored_worktree.resolve()
         except OSError as error:
             raise RunnerError("开发 worktree 路径无法可靠解析，拒绝清理") from error
+        if not stored_worktree.exists() and not stored_worktree.is_symlink():
+            await self._run(
+                ["git", "-C", str(self.settings.repository.resolve()), "worktree", "prune"],
+                cwd=self.settings.repository.resolve(),
+                timeout=30,
+            )
+            return
         if resolved_worktree != expected_worktree:
             raise RunnerError(f"开发 worktree 不匹配受管路径，拒绝清理：{resolved_worktree}")
         repository = self.settings.repository.resolve()
