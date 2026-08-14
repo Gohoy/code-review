@@ -8,9 +8,7 @@ from app.store import Store
 
 
 def load_store(settings: Settings) -> tuple[Store, JsonObject, tuple[JsonObject, ...]]:
-    own_repository = (settings.repository / "app" / "bootstrap.py").is_file() and (
-        settings.repository / "model" / "review-tool.json"
-    ).is_file()
+    own_repository = settings.repository == settings.model_path.parent.parent
     seed = load_object(settings.model_path) if own_repository else _external_repository_seed()
     revision = cast(JsonObject, seed["revision"])
     base_id = revision.get("baseRevisionId")
@@ -42,7 +40,7 @@ def _external_repository_seed() -> JsonObject:
                 "title": "目标仓库用户",
                 "summary": "待由仓库证据具体化的用户入口。",
                 "source": "INFERRED",
-                "details": {"version": "1.0.0"},
+                "details": {"baselinePlaceholder": True, "version": "1.0.0"},
             },
             {
                 "id": "QUESTION-REPOSITORY-BASELINE",
@@ -54,7 +52,15 @@ def _external_repository_seed() -> JsonObject:
                 "details": {"baselinePlaceholder": True, "version": "1.0.0"},
             },
         ],
-        "edges": [],
+        "edges": [
+            {
+                "id": "EDGE-REPOSITORY-BASELINE-BLOCKS",
+                "sourceId": "QUESTION-REPOSITORY-BASELINE",
+                "targetId": "ACTOR-REPOSITORY-USER",
+                "kind": "blocks",
+                "source": "DECLARED",
+            }
+        ],
     }
     return {
         "schemaVersion": 2,

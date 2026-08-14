@@ -44,6 +44,7 @@ class Store:
         graph = cast(JsonObject, document["graph"])
         nodes = cast(list[JsonObject], graph["nodes"])
         edges = cast(list[JsonObject], graph["edges"])
+        nodes_by_id = {str(node["id"]): node for node in nodes}
         if any(
             cast(JsonObject, node.get("details", {})).get("baselinePlaceholder") for node in nodes
         ):
@@ -51,6 +52,12 @@ class Store:
         scenarios = {str(node["id"]) for node in nodes if node.get("kind") == "Scenario"}
         if not scenarios:
             errors.append("外部仓库基线至少需要一个包含 Given/When/Then 的 Scenario")
+        if not any(node.get("kind") == "Actor" for node in nodes):
+            errors.append("外部仓库基线缺少目标用户 Actor")
+        if not any(node.get("kind") == "Flow" for node in nodes):
+            errors.append("外部仓库基线缺少用户主流程")
+        if not any(edge.get("kind") == "branch" for edge in edges):
+            errors.append("外部仓库基线缺少现实分支")
         realized_designs = {
             str(edge["targetId"])
             for edge in edges
@@ -72,9 +79,11 @@ class Store:
                 + "、".join(orphaned)
             )
         ownership = code_ownership(document)
+        if ownership["unownedModuleCount"]:
+            paths = [str(item["path"]) for item in ownership["unownedModules"]]
+            errors.append("外部仓库基线仍有未归属 Module：" + "、".join(paths))
         if ownership["functionCount"] and not ownership["directlyOwnedFunctionCount"]:
             errors.append("外部仓库基线至少需要一个关键 Symbol 直接 implemented_by")
-        nodes_by_id = {str(node["id"]): node for node in nodes}
         semantic_sources = {
             str(edge["sourceId"]) for edge in edges if edge.get("kind") == "implemented_by"
         }
@@ -89,7 +98,7 @@ class Store:
             errors.append(
                 "不得使用“其他”“杂项”或 Repository 根节点作为语义归属兜底：" + "、".join(forbidden)
             )
-        return errors
+        return list(dict.fromkeys(errors))
 
     def initialize(self, seed: JsonObject, history: tuple[JsonObject, ...] = ()) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
