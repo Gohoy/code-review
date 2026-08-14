@@ -415,6 +415,18 @@ class Runner:
         )
         return f"已自动合并到 {branch}（{implementation_commit[:12]}）"
 
+    async def refresh_local_web_assets(self, merge_summary: str) -> None:
+        """自仓代码完成合并后刷新主工作区前端静态产物。"""
+        if self.settings.repository.resolve() != ROOT.resolve():
+            return
+        if merge_summary == "代码无变化，无需合并":
+            return
+        await self._run(
+            ["npm", "--prefix", "prototype", "run", "build"],
+            cwd=ROOT,
+            timeout=600,
+        )
+
     async def render(self, dot_source: str) -> str:
         return await self._run(
             ["dot", "-Tsvg"],

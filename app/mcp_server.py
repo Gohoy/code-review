@@ -322,6 +322,12 @@ async def delivery_merge() -> JsonObject:
         except Exception:
             await asyncio.to_thread(store.fail_run, run_id, "本地合并失败")
             raise
+        try:
+            await runner.refresh_local_web_assets(summary)
+        except Exception:
+            failure = "代码已合并但本地前端产物构建失败"
+            await asyncio.to_thread(store.fail_run, run_id, failure)
+            raise
         await asyncio.to_thread(store.complete_delivery, run_id, summary)
         return {"runId": run_id, "status": "COMPLETED", "summary": summary}
 
