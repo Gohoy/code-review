@@ -13,7 +13,6 @@ from app.graph import (
     GraphError,
     JsonObject,
     _mainline_ids,
-    approval_errors,
     changed_ids,
     code_ownership,
     requirement_context,
@@ -104,7 +103,7 @@ class ReviewService:
             state.update(revision_change_context(base, document))
         graph = cast(JsonObject, document["graph"])
         nodes = cast(list[JsonObject], graph["nodes"])
-        state["approvalErrors"] = approval_errors(document)
+        state["approvalErrors"] = self.store.candidate_approval_errors(document)
         state["layerCounts"] = {
             layer: sum(node.get("layer") == layer for node in nodes)
             for layer in ("requirement", "design", "implementation", "verification")

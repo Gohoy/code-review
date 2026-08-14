@@ -16,6 +16,7 @@ from app.graph import (
     canonical_json,
     changed_ids,
     code_index_diff,
+    code_ownership,
     validate_document,
     with_code_snapshot,
 )
@@ -29,9 +30,66 @@ class StoreError(RuntimeError):
 
 
 class Store:
-    def __init__(self, path: Path, graph_schema: JsonObject) -> None:
+    def __init__(
+        self, path: Path, graph_schema: JsonObject, *, external_repository: bool = False
+    ) -> None:
         self.path = path
         self.graph_schema = graph_schema
+        self.external_repository = external_repository
+
+    def candidate_approval_errors(self, document: JsonObject) -> list[str]:
+        errors = approval_errors(document)
+        if not self.external_repository:
+            return errors
+        graph = cast(JsonObject, document["graph"])
+        nodes = cast(list[JsonObject], graph["nodes"])
+        edges = cast(list[JsonObject], graph["edges"])
+        if any(
+            cast(JsonObject, node.get("details", {})).get("baselinePlaceholder") for node in nodes
+        ):
+            errors.append("必须删除仓库中立占位并建立目标仓库自己的行为基线")
+        scenarios = {str(node["id"]) for node in nodes if node.get("kind") == "Scenario"}
+        if not scenarios:
+            errors.append("外部仓库基线至少需要一个包含 Given/When/Then 的 Scenario")
+        realized_designs = {
+            str(edge["targetId"])
+            for edge in edges
+            if edge.get("kind") == "realized_by" and edge.get("sourceId") in scenarios
+        }
+        module_owners = {
+            str(edge["sourceId"])
+            for edge in edges
+            if edge.get("kind") == "implemented_by"
+            and any(
+                node.get("id") == edge.get("targetId") and node.get("kind") == "Module"
+                for node in nodes
+            )
+        }
+        orphaned = sorted(module_owners - realized_designs - scenarios)
+        if orphaned:
+            errors.append(
+                "拥有源码 Module 的技术设计必须由 Scenario 通过 realized_by 追溯："
+                + "、".join(orphaned)
+            )
+        ownership = code_ownership(document)
+        if ownership["functionCount"] and not ownership["directlyOwnedFunctionCount"]:
+            errors.append("外部仓库基线至少需要一个关键 Symbol 直接 implemented_by")
+        nodes_by_id = {str(node["id"]): node for node in nodes}
+        semantic_sources = {
+            str(edge["sourceId"]) for edge in edges if edge.get("kind") == "implemented_by"
+        }
+        forbidden = sorted(
+            node_id
+            for node_id in semantic_sources
+            if nodes_by_id.get(node_id, {}).get("kind") == "Repository"
+            or str(nodes_by_id.get(node_id, {}).get("title", "")).strip().lower()
+            in {"其他", "杂项", "repository", "仓库根节点"}
+        )
+        if forbidden:
+            errors.append(
+                "不得使用“其他”“杂项”或 Repository 根节点作为语义归属兜底：" + "、".join(forbidden)
+            )
+        return errors
 
     def initialize(self, seed: JsonObject, history: tuple[JsonObject, ...] = ()) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -565,6 +623,7 @@ class Store:
         revision_id = self.next_revision_id()
         document = apply_diff(current, diff, revision_id, self.graph_schema)
         revision = cast(JsonObject, document["revision"])
+        revision["approvable"] = not self.candidate_approval_errors(document)
         current_revision = cast(JsonObject, persisted["revision"])
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -762,7 +821,7 @@ class Store:
                 raise StoreError("revision ID 或内容哈希不匹配")
             document = self._revision_row(row)
             validate_document(document, self.graph_schema)
-            errors = approval_errors(document)
+            errors = self.candidate_approval_errors(document)
             if not row["approvable"] or errors:
                 raise StoreError("；".join(errors) if errors else "当前图不可批准")
 

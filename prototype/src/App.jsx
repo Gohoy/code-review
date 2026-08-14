@@ -496,7 +496,7 @@ export function ReviewApp() {
     try {
       await request("/api/repository/baseline", { method: "POST" });
       toast.success("仓库基线任务已启动");
-      setLayer("implementation");
+      setLayer("requirement");
       await refresh();
     } catch (error) {
       toast.error(error.message);

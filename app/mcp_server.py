@@ -11,7 +11,7 @@ from mcp.server.fastmcp import FastMCP
 
 from app.bootstrap import load_store
 from app.config import ROOT, Settings
-from app.graph import JsonObject, approval_errors, canonical_json, code_ownership, node_context
+from app.graph import JsonObject, canonical_json, code_ownership, node_context
 from app.indexer import index_repository
 from app.prompt import PromptCatalog
 from app.runner import VALIDATION_COMMANDS, Runner
@@ -214,7 +214,7 @@ async def graph_create_candidate(
         revision = cast(JsonObject, document["revision"])
         return {
             "revision": revision,
-            "approvalErrors": approval_errors(document),
+            "approvalErrors": store.candidate_approval_errors(document),
         }
 
     return await _tool("graph_create_candidate", base_revision_id, operation)
@@ -227,7 +227,7 @@ async def revision_request_approval() -> JsonObject:
     async def operation() -> JsonObject:
         document = store.current_document()
         revision = cast(JsonObject, document["revision"])
-        errors = approval_errors(document)
+        errors = store.candidate_approval_errors(document)
         return {
             "revisionId": revision["id"],
             "contentHash": revision["contentHash"],
