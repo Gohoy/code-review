@@ -278,11 +278,12 @@ async def test_run() -> JsonObject:
             context = revision_change_context(base, document)
             scenario_ids = frozenset(cast(list[str], context["changedScenarioIds"]))
             summary = await runner.verify(worktree, scenario_ids)
+            evidence = getattr(runner, "last_test_evidence", ())
         except Exception as error:
             await asyncio.to_thread(store.finish_test, run_id, False, str(error), "")
             raise
         context_hash = validation_context_hash(sorted(scenario_ids))
-        await asyncio.to_thread(store.finish_test, run_id, True, summary, context_hash)
+        await asyncio.to_thread(store.finish_test, run_id, True, summary, context_hash, evidence)
         return {"runId": run_id, "status": "VERIFIED", "summary": summary}
 
     return await _tool("test_run", "执行项目固定测试", operation)

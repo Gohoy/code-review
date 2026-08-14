@@ -37,6 +37,9 @@ import {
   useTransformComponent,
 } from "react-zoom-pan-pinch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { mergeTestEvidenceGraph } from "./graph.js";
+
+export { mergeTestEvidenceGraph } from "./graph.js";
 
 const { Header, Content, Footer, Sider } = Layout;
 const { Text, Title, Paragraph } = Typography;
@@ -196,7 +199,11 @@ function Inspector({ node, graph, changedNodeIds, context, contextLoading, codeO
   ) || [];
   const details = Object.entries(node.details || {}).map(([key, value]) => ({
     key,
-    label: { given: "前提", when: "操作", then: "预期" }[key] || key,
+    label: {
+      given: "前提", when: "操作", then: "预期", scenarioId: "场景",
+      testNodeId: "测试", status: "状态", implementationRunId: "运行",
+      revisionId: "版本", observedAt: "观察时间", source: "来源",
+    }[key] || key,
     children: Array.isArray(value) ? (
       <ul>{value.map((item) => <li key={item}>{item}</li>)}</ul>
     ) : typeof value === "object" ? JSON.stringify(value) : String(value),
@@ -328,6 +335,7 @@ export function ReviewApp() {
   const [conversationOpen, setConversationOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [svg, setSvg] = useState("");
+  const [testEvidence, setTestEvidence] = useState({ nodes: [], edges: [] });
   const [graphError, setGraphError] = useState("");
   const [requirementContext, setRequirementContext] = useState(null);
   const [contextLoading, setContextLoading] = useState(false);
@@ -367,7 +375,10 @@ export function ReviewApp() {
 
   const document = state?.revision;
   const revision = document?.revision;
-  const graph = document?.graph;
+  const graph = useMemo(
+    () => mergeTestEvidenceGraph(document?.graph, layer, testEvidence),
+    [document?.graph, layer, testEvidence],
+  );
   const nodes = graph?.nodes || [];
   const selected = useMemo(
     () => nodes.find((node) => node.id === selectedId),
@@ -413,6 +424,22 @@ export function ReviewApp() {
   useEffect(() => setCodeOpen(false), [selected?.id]);
 
   useEffect(() => {
+    if (!revision || layer !== "verification") {
+      setTestEvidence({ nodes: [], edges: [] });
+      return;
+    }
+    let active = true;
+    const implementationRunId = state?.implementationRun?.id || null;
+    setTestEvidence({ nodes: [], edges: [] });
+    request(`/api/revision/${encodeURIComponent(revision.id)}/test-evidence`)
+      .then((value) => {
+        if (active && value.implementationRunId === implementationRunId) setTestEvidence(value);
+      })
+      .catch((error) => { if (active) setGraphError(error.message); });
+    return () => { active = false; };
+  }, [layer, revision?.id, state?.implementationRun?.updatedAt]);
+
+  useEffect(() => {
     if (!revision) return;
     const parameters = new URLSearchParams({
       revisionId: revision.id,
@@ -432,7 +459,7 @@ export function ReviewApp() {
       })
       .then(setSvg)
       .catch((error) => setGraphError(error.message));
-  }, [layer, revision?.id, selectedId, viewMode, direction]);
+  }, [layer, revision?.id, selectedId, viewMode, direction, state?.implementationRun?.updatedAt]);
 
   useEffect(() => {
     graphRef.current?.querySelectorAll("g.node").forEach((element) => {

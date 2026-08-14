@@ -70,15 +70,22 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
             revision_id, layers, focus_id, view_mode, direction
         )
         etag = f'"{content_hash}:{layer}:{focus_id or ""}:{view_mode}:{direction}"'
-        if request.headers.get("if-none-match") == etag:
+        dynamic = "verification" in layers
+        if not dynamic and request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers={"ETag": etag})
         return Response(
             svg,
             media_type="image/svg+xml",
             headers={
-                "Cache-Control": "private, max-age=31536000, immutable",
+                "Cache-Control": "no-store" if dynamic else "private, max-age=31536000, immutable",
                 "ETag": etag,
             },
+        )
+
+    async def test_evidence(request: Request) -> JSONResponse:
+        return JSONResponse(
+            await service.test_evidence(request.path_params["revision_id"]),
+            headers={"Cache-Control": "no-store"},
         )
 
     async def requirement_context(request: Request) -> JSONResponse:
@@ -132,6 +139,7 @@ def create_app(service: ReviewService, web_dir: Path) -> Starlette:
         Route("/healthz", health),
         Route("/api/state", state),
         Route("/api/revision/{revision_id:str}", revision),
+        Route("/api/revision/{revision_id:str}/test-evidence", test_evidence),
         Route("/api/graph.svg", graph),
         Route("/api/requirement/{focus_id:str}/context", requirement_context),
         Route("/api/message", message, methods=["POST"]),

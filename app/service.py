@@ -104,6 +104,17 @@ class ReviewService:
             layer: sum(node.get("layer") == layer for node in nodes)
             for layer in ("requirement", "design", "implementation", "verification")
         }
+        run_evidence = await asyncio.to_thread(
+            self.store.latest_run_test_evidence,
+            str(cast(JsonObject, document["revision"])["id"]),
+        )
+        evidence_graph: JsonObject = {"nodes": [], "edges": []}
+        self._project_run_test_evidence(
+            evidence_graph,
+            run_evidence,
+            str(cast(JsonObject, document["revision"])["id"]),
+        )
+        state["layerCounts"]["verification"] += len(cast(list[JsonObject], evidence_graph["nodes"]))
         state["dependencies"] = self.dependencies
         functions = [
             node
@@ -156,6 +167,16 @@ class ReviewService:
         immutable_revision.pop("approvable", None)
         return immutable_document
 
+    async def test_evidence(self, revision_id: str) -> JsonObject:
+        """返回当前 revision 最近运行的可交互测试证据投影。"""
+        await self.revision(revision_id)
+        run_evidence = await asyncio.to_thread(self.store.latest_run_test_evidence, revision_id)
+        graph: JsonObject = {"nodes": [], "edges": []}
+        self._project_run_test_evidence(graph, run_evidence, revision_id)
+        run = run_evidence.get("run")
+        graph["implementationRunId"] = run.get("id") if isinstance(run, dict) else None
+        return graph
+
     async def graph_svg(
         self,
         revision_id: str,
@@ -180,6 +201,12 @@ class ReviewService:
         graph = cast(JsonObject, projection["graph"])
         nodes = cast(list[JsonObject], graph["nodes"])
         edges = cast(list[JsonObject], graph["edges"])
+        if "verification" in layers:
+            self._project_run_test_evidence(
+                graph,
+                await asyncio.to_thread(self.store.latest_run_test_evidence, revision_id),
+                revision_id,
+            )
         if view_mode == "changes" and "requirement" in layers:
             requirement_ids = {
                 str(node["id"]) for node in nodes if node.get("layer") == "requirement"
@@ -307,6 +334,89 @@ class ReviewService:
         dot_source = dot_source.replace('rankdir="LR"', f'rankdir="{direction}"', 1)
         svg = await self.runner.render(dot_source)
         return svg, str(revision["contentHash"])
+
+    @staticmethod
+    def _project_run_test_evidence(
+        graph: JsonObject, run_evidence: JsonObject, revision_id: str
+    ) -> None:
+        """把最近运行的结构化测试结果投影为可交互证据节点。"""
+        nodes = cast(list[JsonObject], graph["nodes"])
+        edges = cast(list[JsonObject], graph["edges"])
+        run = run_evidence.get("run")
+        evidence = cast(list[JsonObject], run_evidence["evidence"])
+        if not evidence:
+            run_id = str(run["id"]) if isinstance(run, dict) else "NONE"
+            nodes.append(
+                {
+                    "id": f"EVIDENCE-RUN-EMPTY-{run_id}",
+                    "kind": "Evidence",
+                    "layer": "verification",
+                    "source": "OBSERVED",
+                    "title": "当前运行暂无测试证据",
+                    "summary": "最近一次运行尚未产生结构化逐测试 PASS 证据。",
+                    "details": {
+                        "implementationRunId": run_id if run_id != "NONE" else "暂无运行",
+                        "revisionId": revision_id,
+                        "status": str(run.get("status", "暂无运行"))
+                        if isinstance(run, dict)
+                        else "暂无运行",
+                    },
+                }
+            )
+            return
+
+        scenario_ids = sorted({str(item["scenarioId"]) for item in evidence})
+        for scenario_id in scenario_ids:
+            items = [item for item in evidence if item["scenarioId"] == scenario_id]
+            run_id = str(items[0]["implementationRunId"])
+            summary_id = f"EVIDENCE-RUN-SUMMARY-{run_id}-{scenario_id}"
+            nodes.append(
+                {
+                    "id": summary_id,
+                    "kind": "Evidence",
+                    "layer": "verification",
+                    "source": "OBSERVED",
+                    "title": f"{scenario_id} 测试汇总",
+                    "summary": f"当前运行 {len(items)} 条逐测试证据通过。",
+                    "details": {
+                        "scenarioId": scenario_id,
+                        "status": "PASS",
+                        "implementationRunId": run_id,
+                        "revisionId": revision_id,
+                    },
+                }
+            )
+            edges.append(
+                {
+                    "id": f"EDGE-{summary_id}-VERIFIED-BY",
+                    "kind": "verified_by",
+                    "sourceId": scenario_id,
+                    "targetId": summary_id,
+                    "source": "OBSERVED",
+                }
+            )
+            for index, item in enumerate(items, 1):
+                evidence_id = f"EVIDENCE-RUN-TEST-{run_id}-{scenario_id}-{index}"
+                nodes.append(
+                    {
+                        "id": evidence_id,
+                        "kind": "Evidence",
+                        "layer": "verification",
+                        "source": "OBSERVED",
+                        "title": str(item["testNodeId"]),
+                        "summary": "该测试在当前 implementation run 中真实通过。",
+                        "details": item,
+                    }
+                )
+                edges.append(
+                    {
+                        "id": f"EDGE-{summary_id}-CONTAINS-{index}",
+                        "kind": "contains",
+                        "sourceId": summary_id,
+                        "targetId": evidence_id,
+                        "source": "OBSERVED",
+                    }
+                )
 
     async def requirement_context(self, focus_id: str) -> JsonObject:
         state = await asyncio.to_thread(self.store.state)

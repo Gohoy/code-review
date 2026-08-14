@@ -70,6 +70,7 @@ class Runner:
         self.settings = settings
         self.agent_result_schema = load_object(settings.agent_result_schema_path)
         self.prompts = PromptCatalog(settings.prompt_dir)
+        self.last_test_evidence: tuple[JsonObject, ...] = ()
 
     async def dependency_status(self) -> JsonObject:
         checks = {
@@ -317,14 +318,19 @@ class Runner:
         )
 
     async def verify(self, worktree: Path, approved_scenario_ids: frozenset[str]) -> str:
+        self.last_test_evidence = ()
         await self.verify_gate(worktree, approved_scenario_ids)
         shared_dependencies = (worktree / "prototype" / "node_modules").is_symlink()
         for command in VALIDATION_COMMANDS:
             if shared_dependencies and command == ("npm", "--prefix", "prototype", "ci"):
                 continue
             await self._run(list(command), cwd=worktree, timeout=600)
-        evidence = await self._scenario_test_evidence(worktree, approved_scenario_ids)
-        return "\n".join(("项目固定测试全部通过", *evidence))
+        evidence = await self._structured_scenario_test_evidence(worktree, approved_scenario_ids)
+        lines = tuple(
+            f"OBSERVED PASS：{item['scenarioId']}：{item['testNodeId']}" for item in evidence
+        )
+        self.last_test_evidence = evidence
+        return "\n".join(("项目固定测试全部通过", *lines))
 
     async def verify_gate(
         self, worktree: Path, approved_scenario_ids: frozenset[str]
@@ -472,6 +478,14 @@ class Runner:
     async def _scenario_test_evidence(
         self, worktree: Path, approved_scenario_ids: frozenset[str]
     ) -> tuple[str, ...]:
+        evidence = await self._structured_scenario_test_evidence(worktree, approved_scenario_ids)
+        return tuple(
+            f"OBSERVED PASS：{item['scenarioId']}：{item['testNodeId']}" for item in evidence
+        )
+
+    async def _structured_scenario_test_evidence(
+        self, worktree: Path, approved_scenario_ids: frozenset[str]
+    ) -> tuple[JsonObject, ...]:
         if not approved_scenario_ids:
             return ()
         collected = await self._run(
@@ -484,7 +498,7 @@ class Runner:
             for line in collected.splitlines()
             if line.strip().startswith("tests/") and "::" in line
         )
-        evidence: list[str] = []
+        evidence: list[JsonObject] = []
         for scenario_id in sorted(approved_scenario_ids):
             matching = tuple(node_id for node_id in node_ids if scenario_id in node_id)
             if not matching:
@@ -504,7 +518,15 @@ class Runner:
                 raise RunnerError(
                     f"{scenario_id}：场景测试缺少逐测试通过结果：{', '.join(missing)}"
                 )
-            evidence.extend(f"OBSERVED PASS：{scenario_id}：{node_id}" for node_id in passed)
+            evidence.extend(
+                {
+                    "scenarioId": scenario_id,
+                    "testNodeId": node_id,
+                    "status": "PASS",
+                    "source": "OBSERVED",
+                }
+                for node_id in passed
+            )
         return tuple(evidence)
 
     async def _assert_merge_target(self, repository: Path, base_commit: str) -> str:

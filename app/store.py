@@ -125,6 +125,18 @@ class Store:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS run_test_evidence (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scenario_id TEXT NOT NULL,
+                    test_node_id TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status = 'PASS'),
+                    implementation_run_id TEXT NOT NULL REFERENCES implementation_run(id),
+                    revision_id TEXT NOT NULL REFERENCES revision(id),
+                    observed_at TEXT NOT NULL,
+                    source TEXT NOT NULL CHECK (source = 'OBSERVED'),
+                    UNIQUE (implementation_run_id, scenario_id, test_node_id)
+                );
+
                 CREATE TRIGGER IF NOT EXISTS approved_revision_content_immutable
                 BEFORE UPDATE OF content_json, content_hash ON revision
                 WHEN OLD.status = 'APPROVED'
@@ -928,7 +940,19 @@ class Store:
         worktree = run.get("worktree")
         if not isinstance(worktree, str):
             raise StoreError("开发 worktree 尚未创建")
-        self._update_run(run_id, "TESTING", summary="正在执行项目固定测试")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "DELETE FROM run_test_evidence WHERE implementation_run_id = ?", (run_id,)
+            )
+            connection.execute(
+                """
+                UPDATE implementation_run
+                SET status = 'TESTING', summary = '正在执行项目固定测试', updated_at = ?
+                WHERE id = ?
+                """,
+                (_now(), run_id),
+            )
         return Path(worktree)
 
     def finish_test(
@@ -937,6 +961,7 @@ class Store:
         passed: bool,
         summary: str,
         validation_context_hash: str,
+        evidence: tuple[JsonObject, ...] = (),
     ) -> None:
         run = self.implementation_run(run_id)
         if run["status"] != "TESTING":
@@ -944,6 +969,29 @@ class Store:
         if passed and not validation_context_hash:
             raise StoreError("验证上下文哈希不能为空")
         with self._connect() as connection:
+            if passed and evidence:
+                observed_at = _now()
+                connection.execute(
+                    "DELETE FROM run_test_evidence WHERE implementation_run_id = ?", (run_id,)
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO run_test_evidence (
+                        scenario_id, test_node_id, status, implementation_run_id,
+                        revision_id, observed_at, source
+                    ) VALUES (?, ?, 'PASS', ?, ?, ?, 'OBSERVED')
+                    """,
+                    [
+                        (
+                            str(item["scenarioId"]),
+                            str(item["testNodeId"]),
+                            run_id,
+                            str(run["revisionId"]),
+                            observed_at,
+                        )
+                        for item in evidence
+                    ],
+                )
             connection.execute(
                 """
                 UPDATE implementation_run
@@ -958,6 +1006,46 @@ class Store:
                     run_id,
                 ),
             )
+
+    def latest_run_test_evidence(self, revision_id: str) -> JsonObject:
+        """读取指定 revision 最新运行及该运行自身的逐测试证据。"""
+        with self._connect() as connection:
+            run = connection.execute(
+                """
+                SELECT * FROM implementation_run
+                WHERE revision_id = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (revision_id,),
+            ).fetchone()
+            if run is None:
+                return {"run": None, "evidence": []}
+            rows = connection.execute(
+                """
+                SELECT scenario_id, test_node_id, status, implementation_run_id,
+                       revision_id, observed_at, source
+                FROM run_test_evidence
+                WHERE implementation_run_id = ?
+                ORDER BY scenario_id, test_node_id
+                """,
+                (run["id"],),
+            )
+            return {
+                "run": self._run_row(run),
+                "evidence": [
+                    {
+                        "scenarioId": row["scenario_id"],
+                        "testNodeId": row["test_node_id"],
+                        "status": row["status"],
+                        "implementationRunId": row["implementation_run_id"],
+                        "revisionId": row["revision_id"],
+                        "observedAt": row["observed_at"],
+                        "source": row["source"],
+                    }
+                    for row in rows
+                ],
+            }
 
     def submit_review(self, run_id: str, status: str, summary: str) -> None:
         if status not in {"PASS", "BLOCKED"}:
