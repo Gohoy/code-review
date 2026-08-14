@@ -351,9 +351,16 @@ export function ReviewApp() {
     try {
       const status = await request("/api/state");
       const revisionId = status.revision?.id;
+      const contentHash = status.revision?.contentHash;
       let document = loadedRevisionRef.current;
-      if (!document || document.revision.id !== revisionId) {
-        document = await request(`/api/revision/${encodeURIComponent(revisionId)}`);
+      if (
+        !document
+        || document.revision.id !== revisionId
+        || document.revision.contentHash !== contentHash
+      ) {
+        document = await request(
+          `/api/revision/${encodeURIComponent(revisionId)}?contentHash=${encodeURIComponent(contentHash)}`,
+        );
         loadedRevisionRef.current = document;
       }
       setState({
@@ -444,6 +451,7 @@ export function ReviewApp() {
     if (!revision) return;
     const parameters = new URLSearchParams({
       revisionId: revision.id,
+      contentHash: revision.contentHash,
       layer,
       focusId: selectedId || "",
       viewMode,
@@ -460,7 +468,7 @@ export function ReviewApp() {
       })
       .then(setSvg)
       .catch((error) => setGraphError(error.message));
-  }, [layer, revision?.id, selectedId, viewMode, direction, state?.implementationRun?.updatedAt]);
+  }, [layer, revision?.id, revision?.contentHash, selectedId, viewMode, direction, state?.implementationRun?.updatedAt]);
 
   useEffect(() => {
     graphRef.current?.querySelectorAll("g.node").forEach((element) => {
