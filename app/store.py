@@ -1026,7 +1026,7 @@ class Store:
                 delivered = (
                     self._json_ids(run["delivery_scenario_ids_json"])
                     if run["delivery_scope_recorded"]
-                    else direct_by_revision.get(item_id, [])
+                    else []
                 )
                 pending.difference_update(delivered)
         inherited = sorted(pending - set(direct))

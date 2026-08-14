@@ -176,7 +176,7 @@ def test_SCN_PENDING_DELIVERY_SCOPE_001_旧成功不能抵消后续阻断修改(
             INSERT INTO implementation_run (
                 id, requirement_id, revision_id, status, delivery_scenario_ids_json,
                 delivery_scope_recorded, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, '[]', 0, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
             """,
             [
                 (
@@ -184,6 +184,7 @@ def test_SCN_PENDING_DELIVERY_SCOPE_001_旧成功不能抵消后续阻断修改(
                     REQUIREMENT_ID,
                     "REV-REVIEW-TOOL-080",
                     "COMPLETED",
+                    '["SCN-DESKTOP-STATUS-LAYOUT-001"]',
                     "2026-08-14T00:05:00+00:00",
                     "2026-08-14T00:05:00+00:00",
                 ),
@@ -192,10 +193,36 @@ def test_SCN_PENDING_DELIVERY_SCOPE_001_旧成功不能抵消后续阻断修改(
                     REQUIREMENT_ID,
                     "REV-REVIEW-TOOL-081",
                     "BLOCKED",
+                    "[]",
                     "2026-08-14T00:10:00+00:00",
                     "2026-08-14T00:10:00+00:00",
                 ),
             ],
+        )
+        _, inherited = store._delivery_scope(connection, "REV-REVIEW-TOOL-082")
+
+    assert "SCN-DESKTOP-STATUS-LAYOUT-001" in inherited
+
+
+def test_SCN_PENDING_DELIVERY_SCOPE_001_无法证明范围的历史成功不清除(
+    tmp_path: Path,
+) -> None:
+    store, _ = _历史仓库(tmp_path)
+    with sqlite3.connect(store.path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute(
+            """
+            INSERT INTO implementation_run (
+                id, requirement_id, revision_id, status, delivery_scenario_ids_json,
+                delivery_scope_recorded, created_at, updated_at
+            ) VALUES ('RUN-LEGACY-COMPLETED', ?, 'REV-REVIEW-TOOL-080',
+                      'COMPLETED', '[]', 0, ?, ?)
+            """,
+            (
+                REQUIREMENT_ID,
+                "2026-08-14T00:05:00+00:00",
+                "2026-08-14T00:05:00+00:00",
+            ),
         )
         _, inherited = store._delivery_scope(connection, "REV-REVIEW-TOOL-082")
 
