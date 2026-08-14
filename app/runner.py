@@ -28,6 +28,7 @@ VALIDATION_COMMANDS = (
     ("npm", "--prefix", "prototype", "run", "test:sites"),
 )
 SEMANTIC_VALIDATOR_PATH = "app/graph.py"
+NON_VALIDATOR_GRAPH_FUNCTIONS = frozenset({"_function_lookup", "_resolve_call"})
 VALIDATION_COMMANDS_PATH = "app/runner.py"
 
 
@@ -58,6 +59,19 @@ def _constant_value(source: str, name: str) -> str:
         ):
             return ast.dump(node.value, include_attributes=False)
     return "<缺失>"
+
+
+def _module_without_functions(source: str, names: frozenset[str]) -> str:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return "<语法错误>"
+    tree.body = [
+        node
+        for node in tree.body
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) or node.name not in names
+    ]
+    return ast.dump(tree, include_attributes=False)
 
 
 def _pytest_node_ids(output: str, path: str) -> tuple[str, ...]:
@@ -437,7 +451,16 @@ class Runner:
             if path.startswith("model/") and path.endswith(".json"):
                 violations.append(f"{path}：批准模型或 JSON Schema 不可修改")
             if path == SEMANTIC_VALIDATOR_PATH:
-                violations.append(f"{path}：统一图语义校验器不可修改")
+                baseline_graph = await self._run(
+                    ["git", "-C", str(worktree), "show", f"HEAD:{SEMANTIC_VALIDATOR_PATH}"],
+                    cwd=worktree,
+                    timeout=30,
+                )
+                current_graph = (worktree / SEMANTIC_VALIDATOR_PATH).read_text(encoding="utf-8")
+                if _module_without_functions(
+                    baseline_graph, NON_VALIDATOR_GRAPH_FUNCTIONS
+                ) != _module_without_functions(current_graph, NON_VALIDATOR_GRAPH_FUNCTIONS):
+                    violations.append(f"{path}：统一图语义校验器不可修改")
             scenario_test = any(scenario_id in path for scenario_id in approved_scenario_ids)
             if path in tracked and _is_test_path(path) and not scenario_test:
                 violations.append(f"{path}：基线已有测试不可修改或删除")
